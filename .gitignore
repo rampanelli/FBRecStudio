@@ -1,0 +1,54 @@
+# =====================================================================
+# FBRecStudio - .gitignore
+# =====================================================================
+
+# Artefatos do Delphi 7 (gerados por dcc32/brcc32)
+*.dcu
+*.ddp
+*.map
+*.drc
+*.exe
+*.res
+*.obj
+*.~*
+
+# Artefatos do Free Pascal (validacao FPC)
+*.o
+*.ppu
+*.a
+*.lib
+*.rst
+
+# Backups / ruido de editor
+*.bak
+*.local
+*.orig
+*.rej
+*.tmp
+__history/
+__recovery/
+
+# Pasta de saida de build (dcus intermediarios, exe da F0 em bin/)
+build/
+bin/
+
+# Corpora de testes (bancos grandes / binarios) - manter so o README
+tests/corpora/*
+!tests/corpora/README.md
+
+# Artefatos locais sensiveis (nunca versionar)
+config.ini
+credentials.bin
+history.csv
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Logs avulsos
+*.log
+
+# Rascunhos de identidade (nunca versionar); o placeholder oficial
+# res/icons/FBRecStudio.ico e versionado.
+res/icons/_*
+res/icons/*.png

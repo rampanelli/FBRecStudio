@@ -1,0 +1,43 @@
+// ------------------------------------------------------------------
+// FBRecStudio.rc - recursos da aplicacao (compilado pelo build.bat).
+//   brcc32 FBRecStudio.rc   ->   FBRecStudio.res  (linkado por {$R *.res})
+//
+// F0-T2: manifest (comctl32 v6) + VERSIONINFO pt-BR (bloco 041604E4).
+// F0-T7 (icone): placeholder 16x16 gerado em res\icons\FBRecStudio.ico
+// (conceito 2.1 do PLANO: squircle azul + cilindro + seta circular de
+// restauracao, ponta verde). Design
+// final multi-tamanho fica para a F1 (res\README.md e ROADMAP-STATUS).
+// ------------------------------------------------------------------
+
+100 ICON "..\..\res\icons\FBRecStudio.ico"
+
+1 24 "..\..\res\FBRecStudio.manifest"
+
+1 VERSIONINFO
+FILEVERSION    0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEFLAGSMASK  0x3fL
+FILEFLAGS      0x0L
+FILEOS         0x40004L
+FILETYPE       0x1L
+FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041604E4"
+        BEGIN
+            VALUE "CompanyName",      "FBRecStudio"
+            VALUE "FileDescription",  "FB Recovery Studio"
+            VALUE "FileVersion",      "0.1.0.0"
+            VALUE "InternalName",     "FBRecStudio"
+            VALUE "LegalCopyright",   "Copyright (C) 2025 FBRecStudio"
+            VALUE "OriginalFilename", "FBRecStudio.exe"
+            VALUE "ProductName",      "FBRecStudio"
+            VALUE "ProductVersion",   "0.1.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0416, 0x04E4
+    END
+END

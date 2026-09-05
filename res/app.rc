@@ -1,0 +1,54 @@
+// ====================================================================
+// res\app.rc - REFERENCIA/DOCUMENTACAO dos recursos de identidade
+// (F0-T7).
+//
+// Este arquivo NAO e compilado pelo build.bat: o .rc que compila e o
+// src\app\FBRecStudio.rc, que ja inclui o icone (100 ICON) e o
+// VERSIONINFO. Nao compilar os dois juntos (VERSIONINFO duplicado no
+// mesmo .res). Mantido aqui como modelo editavel para a F1, quando o
+// icone final multi-tamanho substituir o placeholder:
+//
+//   1. substitua o placeholder res\icons\FBRecStudio.ico pelo pacote
+//      final (16/24/32/48/256) aprovado (conceito PLANO 2.1 + decisao
+//      de marca do PLANO secao 9);
+//   2. a linha "100 ICON ..." abaixo ja esta ativa em
+//      src\app\FBRecStudio.rc; se preferir gerar os recursos por aqui,
+//      mova este bloco (icone + VERSIONINFO) para la e remova o que
+//      estiver duplicado.
+//
+// Valores de linguagem: pt-BR = 0x0416, charset Unicode = 0x04E4,
+// bloco "041604E4". Todas as strings sao ASCII (seguranca brcc32).
+// ====================================================================
+
+// --- Icone da aplicacao (placeholder F0; design final na F1) --------
+// 100 ICON "icons\FBRecStudio.ico"
+
+// --- VERSIONINFO identico ao de src\app\FBRecStudio.rc --------------
+// 1 VERSIONINFO
+// FILEVERSION    0,1,0,0
+// PRODUCTVERSION 0,1,0,0
+// FILEFLAGSMASK  0x3fL
+// FILEFLAGS      0x0L
+// FILEOS         0x40004L
+// FILETYPE       0x1L
+// FILESUBTYPE    0x0L
+// BEGIN
+//     BLOCK "StringFileInfo"
+//     BEGIN
+//         BLOCK "041604E4"
+//         BEGIN
+//             VALUE "CompanyName",      "FBRecStudio"
+//             VALUE "FileDescription",  "FB Recovery Studio"
+//             VALUE "FileVersion",      "0.1.0.0"
+//             VALUE "InternalName",     "FBRecStudio"
+//             VALUE "LegalCopyright",   "Copyright (C) 2025 FBRecStudio"
+//             VALUE "OriginalFilename", "FBRecStudio.exe"
+//             VALUE "ProductName",      "FBRecStudio"
+//             VALUE "ProductVersion",   "0.1.0.0"
+//         END
+//     END
+//     BLOCK "VarFileInfo"
+//     BEGIN
+//         VALUE "Translation", 0x0416, 0x04E4
+//     END
+// END
