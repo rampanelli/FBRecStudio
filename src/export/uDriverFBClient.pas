@@ -73,6 +73,7 @@ const
   // Versao do XSQLDA e opcoes
   SQLDA_VERSION = 1;
   DSQL_DROP = 1;            // isc_dsql_free_statement: encerra o stmt
+  K_LOAD_ALTERED_SEARCH_PATH = $00000008; // LOAD_WITH_ALTERED_SEARCH_PATH
 
   // Tipos SQL (Firebird / ibase.h)
   SQL_VARYING   = 448;
@@ -1000,7 +1001,11 @@ begin
     Exit;
   end;
 
-  FDll := LoadLibrary(PChar(Caminho));
+  // Dependencias do fbclient (icu*.dll, msvcp80...) nao sao procuradas
+  // na pasta da dll pelo LoadLibrary simples (erro 126 comprovado).
+  // LoadLibraryEx com LOAD_WITH_ALTERED_SEARCH_PATH busca as
+  // dependencias na pasta da propria dll (sem efeito colateral).
+  FDll := LoadLibraryEx(PChar(Caminho), 0, K_LOAD_ALTERED_SEARCH_PATH);
   if FDll = 0 then
   begin
     FErroInit := 'falha ao carregar ' + Caminho + ' (LoadLibrary)';

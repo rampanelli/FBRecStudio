@@ -62,6 +62,8 @@ begin
         Entrada.PastaTrabalho := ParamStr(3)
       else
         Entrada.PastaTrabalho := ''; // default ao lado do arquivo
+      if ParamCount >= 4 then
+        Entrada.Destino := ParamStr(4);
       Entrada.Usuario := 'sysdba';
       Entrada.Senha := 'masterkey';
       Entrada.TimeoutMs := 0;        // default interno (30 min)

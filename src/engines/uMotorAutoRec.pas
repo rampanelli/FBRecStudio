@@ -61,6 +61,8 @@ type
   // Entrada do motor de recuperacao automatica.
   TRecAutoEntrada = record
     Origem: string;            // arquivo danificado (backup ou banco)
+    Destino: string;           // caminho/nome FINAL do banco recuperado
+                               // ('' = default <pasta>\recuperacao\...)
     PastaTrabalho: string;     // artefatos + relatorio (criada se falta)
     Usuario: string;           // -user opcional ('' = sem)
     Senha: string;             // -pass opcional (nunca em claro no log)
@@ -120,6 +122,9 @@ type
       out ARegistros: Int64; out AMsg: string): Boolean;
     // Tecnica L4 (ultima barreira; leitura pura).
     procedure TecnicaExtratorTexto(const AAlvo: string);
+    // Tecnica L2: datapump tabela a tabela via driver fbclient (extrai
+    // o que der, pulando tabelas corrompidas).
+    procedure TecnicaDatapump(const ABanco: string);
     // Utilitario para rodar isql (script temporario).
     function RodarIsql(const AScript: TStrings; out ASaida: TStringList;
       out AMsg: string): Boolean;
@@ -149,7 +154,8 @@ implementation
 
 uses
   uLogger, uQuoting, uTextCodec, uEngineGbak, uEngineGfix,
-  uMotorSalvage, uExtratorTexto, uFBSwitchCatalog;
+  uMotorSalvage, uExtratorTexto, uFBSwitchCatalog,
+  uExportBase, uExportCSV, uDriverFBClient;
 
 // ------------------------------------------------------------------
 // Constantes locais
@@ -854,6 +860,120 @@ begin
 end;
 
 // ------------------------------------------------------------------
+// Tecnica L2 - datapump tabela a tabela (driver fbclient): abre o
+// banco com o driver real e exporta cada tabela para .csv, pulando as
+// que falharem. Usa o TExportadorCSV + uDriverFBClient (validados no
+// TestDriverFB).
+// ------------------------------------------------------------------
+procedure TMotorAutoRec.TecnicaDatapump(const ABanco: string);
+var
+  DllDir: string;
+  Drv: IDriverFBConsulta;
+  Msg: string;
+  Tabelas: TStringList;
+  I: Integer;
+  Ex: TExportadorCSV;
+  P: TExportParams;
+  M: TManifestoExport;
+  Item: TItemManifesto;
+  OkT, OkComDados, Falhas: Integer;
+  SomaLinhas: Int64;
+  Resumo: string;
+begin
+  Rel('Tecnica L2 - datapump tabela a tabela (driver fbclient) sobre: ' +
+      ABanco);
+  if Length(FEntrada.Bins) = 0 then
+  begin
+    RegistrarPasso('L2 - datapump tabela a tabela', 'sem engine', False);
+    Exit;
+  end;
+  DllDir := FEntrada.Bins[0].CaminhoBin;
+  if not FileExists(DllDir + 'fbclient.dll') then
+  begin
+    RegistrarPasso('L2 - datapump tabela a tabela',
+      'fbclient.dll nao encontrado em ' + DllDir +
+      ' (instale o motor embarcado ou Firebird)', False);
+    Exit;
+  end;
+  Drv := CriarDriverFBClient(DllDir, ABanco, Msg);
+  if Drv = nil then
+  begin
+    RegistrarPasso('L2 - datapump tabela a tabela', Msg, False);
+    Exit;
+  end;
+
+  Tabelas := TStringList.Create;
+  M := TManifestoExport.Create;
+  Ex := nil;
+  P := nil;
+  try
+    if not Drv.ListarTabelas(Tabelas, Msg) then
+    begin
+      RegistrarPasso('L2 - datapump tabela a tabela',
+        'falha ao listar tabelas: ' + Msg, False);
+      Exit;
+    end;
+    Ex := TExportadorCSV.CreateComDriver(Drv);
+    P := TExportParams.Create;
+    P.Origem := ABanco;
+    P.PastaDestino := FEntrada.PastaTrabalho;
+    P.ArquivoBase := NomeBaseOrigem;
+    P.Sobrescrever := True;
+    P.CharsetSaida := 'ANSI';
+    P.Delimitador := ';';
+    P.IncluirBlob := True;
+    P.BlobComo := beHex;
+    SetLength(P.TabelasAlvo, Tabelas.Count);
+    for I := 0 to Tabelas.Count - 1 do
+      P.TabelasAlvo[I] := Tabelas[I];
+    if not Ex.Preparar(P, Msg) then
+    begin
+      RegistrarPasso('L2 - datapump tabela a tabela',
+        'falha ao preparar exportacao: ' + Msg, False);
+      Exit;
+    end;
+    if not Ex.Executar(nil, nil, M) then
+      Rel('  [INFO]   houve falhas parciais na extracao (detalhes abaixo).');
+
+    OkT := 0;
+    OkComDados := 0;
+    Falhas := 0;
+    SomaLinhas := 0;
+    for I := 0 to M.Count - 1 do
+    begin
+      Item := M.Itens[I];
+      if Item.Status = xeOk then
+      begin
+        Inc(OkT);
+        if Item.Linhas > 0 then
+          Inc(OkComDados);
+        SomaLinhas := SomaLinhas + Item.Linhas;
+      end
+      else
+      begin
+        Inc(Falhas);
+        if Falhas <= 10 then
+          Rel('  [FALHA]  tabela ' + Item.Tabela + ': ' + Item.Detalhe);
+      end;
+    end;
+    Resumo := IntToStr(OkT) + ' de ' + IntToStr(M.Count) +
+              ' tabelas exportadas (' + Format('%d', [SomaLinhas]) +
+              ' registros; CSVs em ' + FEntrada.PastaTrabalho + ')';
+    if Falhas > 0 then
+      Resumo := Resumo + '; ' + IntToStr(Falhas) +
+                ' tabela(s) pulada(s) (corrompidas/ilegiveis)';
+    Rel('  [OK]     L2 datapump: ' + Resumo);
+    RegistrarPasso('L2 - datapump tabela a tabela (driver fbclient)',
+      Resumo, OkT > 0);
+  finally
+    P.Free;
+    Ex.Free;
+    M.Free;
+    Tabelas.Free;
+  end;
+end;
+
+// ------------------------------------------------------------------
 // Fluxo backup (.fbk/.gbk): restore limpo -> tolerante -> extrator.
 // ------------------------------------------------------------------
 procedure TMotorAutoRec.FluxoBackup(const D: TDiagResult);
@@ -864,6 +984,7 @@ var
   Registros: Int64;
   RestoreOk: Boolean;
   EngineOk, EngineInfo: string;
+  Tolerante: string;
   I, EngineIdx: Integer;
   B: TBinSet;
 begin
@@ -910,7 +1031,10 @@ begin
   Rel('Engine em uso: ' + FEntrada.Bins[0].CaminhoBin + 'gbak.exe' +
       ' (' + EngineOk + ')');
 
-  Destino := CaminhoArtefato('_recuperado', K_EXT_DB);
+  Destino := FEntrada.Destino;
+  if Destino = '' then
+    Destino := CaminhoArtefato('_recuperado', K_EXT_DB);
+  Rel('Destino do banco recuperado: ' + Destino);
   LogarInfo('T1: restore limpo -> ' + Destino);
   RestoreOk := TentarRestore(FEntrada.Origem, Destino, False, Msg);
   if RestoreOk then
@@ -947,13 +1071,22 @@ begin
   RegistrarPasso('T1 - restore limpo (gbak -c -v)', 'falhou: ' + Msg,
     False);
 
-  // T2 - restore tolerante (-ig) para um novo destino.
-  Destino := CaminhoArtefato('_recuperado_tolerante', K_EXT_DB);
-  LogarInfo('T2: restore tolerante (-ig) -> ' + Destino);
-  RestoreOk := TentarRestore(FEntrada.Origem, Destino, True, Msg);
+  // T2 - restore tolerante (-ig) para um arquivo intermediario; ao
+  // final, o resultado vai para o Destino informado (quando ha).
+  Tolerante := CaminhoArtefato('_recuperado_tolerante', K_EXT_DB);
+  LogarInfo('T2: restore tolerante (-ig) -> ' + Tolerante);
+  RestoreOk := TentarRestore(FEntrada.Origem, Tolerante, True, Msg);
   if RestoreOk then
   begin
     RegistrarPasso('T2 - restore tolerante (gbak -c -v -ig)', Msg, True);
+    if not SameText(Tolerante, Destino) then
+    begin
+      if CopyFile(PChar(Tolerante), PChar(Destino), False) then
+        Rel('  [OK]     resultado copiado para o destino: ' + Destino)
+      else
+        Rel('  [FALHA]  nao foi possivel copiar para o destino: ' +
+            Destino + ' (erro ' + IntToStr(GetLastError) + ')');
+    end;
     if ValidarBanco(Destino, MsgVal) then
     begin
       RegistrarPasso('Validacao pos-restore (gfix -v)', MsgVal, True);
@@ -1094,6 +1227,24 @@ begin
       if (Motor.BackupFbk <> '') and FileExists(Motor.BackupFbk) and
          (Motor.CopiaForense <> '') and FileExists(Motor.CopiaForense) then
         Alvo := Motor.CopiaForense;
+      // Destino informado: entrega o melhor artefato nesse caminho
+      // (respeita o caminho/nome digitado pelo usuario).
+      if (FEntrada.Destino <> '') and
+         (not SameText(Alvo, FEntrada.Destino)) then
+      begin
+        if CopyFile(PChar(Alvo), PChar(FEntrada.Destino), False) then
+        begin
+          Rel('  [OK]     artefato copiado para o destino: ' +
+              FEntrada.Destino);
+          Alvo := FEntrada.Destino;
+        end
+        else
+          Rel('  [INFO]   nao foi possivel copiar para o destino: ' +
+              FEntrada.Destino + ' (erro ' +
+              IntToStr(GetLastError) + ')');
+      end;
+      // L2 - datapump tabela a tabela: extrai o que der (driver real).
+      TecnicaDatapump(Alvo);
       if ContarBanco(Alvo, Tabelas, Registros, MsgCont) then
       begin
         FArquivoFinal := Alvo;

@@ -132,7 +132,8 @@ type
     procedure DoHistorico(Sender: TObject);
     procedure DoAssociar(Sender: TObject);
     procedure OpConcluida;   // chamado via Synchronize pela worker
-    procedure CarregarArquivo(const ACaminho: string);
+    procedure CarregarArquivo(const ACaminho: string;
+      AManterDestino: Boolean = False);
     procedure CarregarIni;
     procedure SalvarIni;
     procedure WMCopyData(var Msg: TMessage); message WM_COPYDATA;
@@ -998,7 +999,8 @@ begin
     FDest.Text := FSave.FileName;
 end;
 
-procedure TfrmMain.CarregarArquivo(const ACaminho: string);
+procedure TfrmMain.CarregarArquivo(const ACaminho: string;
+  AManterDestino: Boolean);
 begin
   if ACaminho = '' then
     Exit;
@@ -1009,7 +1011,8 @@ begin
     Exit;
   end;
   FArquivo := ACaminho;
-    FDest.Text := ChangeFileExt(FArquivo, '.fdb');
+    if not AManterDestino then
+      FDest.Text := ChangeFileExt(FArquivo, '.fdb');
     if FOrigemEdit <> nil then
       FOrigemEdit.Text := ACaminho;
     AtualizarStatus('arquivo carregado');
@@ -1145,17 +1148,27 @@ begin
   end;
   if Origem = '' then
     Exit;
-  if FOrigemEdit <> nil then
-    FOrigemEdit.Text := Origem;
-  if FDest <> nil then
+  if FileExists(Origem) then
   begin
-    if Destino = '' then
-      Destino := ChangeFileExt(Origem, '.fdb');
-    FDest.Text := Destino;
+    // Abre DE VERDADE o arquivo da ultima sessao (FArquivo, destino,
+    // credenciais por tipo) - respeita o caminho digitado/mostrado.
+    if (Destino <> '') and (FDest <> nil) then
+      FDest.Text := Destino;
+    CarregarArquivo(Origem, True);
+    AtualizarStatus('ultima sessao reaberta: ' + Origem);
+    AddLine('Ultima sessao reaberta: ' + Origem);
+  end
+  else
+  begin
+    if FOrigemEdit <> nil then
+      FOrigemEdit.Text := Origem;
+    if (Destino <> '') and (FDest <> nil) then
+      FDest.Text := Destino;
+    CarregarCredenciais(Tipo);
+    AtualizarStatus('ultima sessao: arquivo nao encontrado (campos ' +
+                    'preenchidos).');
+    AddLine('Ultima sessao (arquivo nao encontrado): ' + Origem);
   end;
-  CarregarCredenciais(Tipo);
-  AtualizarStatus('ultima sessao carregada (origem/destino/credenciais).');
-  AddLine('Ultima sessao: ' + Origem);
 end;
 
 procedure TfrmMain.CarregarIni;
@@ -1610,6 +1623,7 @@ begin
       N := AutoDetectar(Extras, Bins);
       FillChar(Entrada, SizeOf(Entrada), 0);
       Entrada.Origem := FArquivo;
+      Entrada.Destino := frmMain.FDest.Text;  // respeita o destino digitado
       Entrada.PastaTrabalho := ''; // default: pasta ao lado do arquivo
       Entrada.Usuario := FUser;
       Entrada.Senha := FSenha;
@@ -1629,16 +1643,35 @@ begin
         // Monta o texto do relatorio (mesmo sem banco: honesto).
         for I := 0 to Motor.Relatorio.Count - 1 do
           FResultado := FResultado + Motor.Relatorio[I] + #13#10;
-        // Salva o relatorio .txt na pasta de trabalho usada pelo motor.
+        // Salva o relatorio .txt junto do DESTINO informado (nome do
+        // destino + _relatorio_recuperacao.txt); sem destino, na pasta
+        // de trabalho padrao.
         RelPath := '';
-        P := ExtractFilePath(FArquivo);
-        if P = '' then
-          P := ExtractFilePath(Application.ExeName);
-        if P <> '' then
+        if frmMain.FDest.Text <> '' then
         begin
-          if P[Length(P)] <> '\' then
-            P := P + '\';
-          RelPath := P + 'recuperacao\relatorio_recuperacao.txt';
+          P := ExtractFilePath(frmMain.FDest.Text);
+          if P = '' then
+            P := ExtractFilePath(Application.ExeName);
+          if P <> '' then
+          begin
+            if P[Length(P)] <> '\' then
+              P := P + '\';
+            RelPath := P + ChangeFileExt(
+              ExtractFileName(frmMain.FDest.Text), '') +
+              '_relatorio_recuperacao.txt';
+          end;
+        end
+        else
+        begin
+          P := ExtractFilePath(FArquivo);
+          if P = '' then
+            P := ExtractFilePath(Application.ExeName);
+          if P <> '' then
+          begin
+            if P[Length(P)] <> '\' then
+              P := P + '\';
+            RelPath := P + 'recuperacao\relatorio_recuperacao.txt';
+          end;
         end;
         if (RelPath <> '') and Motor.SalvarRelatorio(RelPath) then
         begin
@@ -1698,10 +1731,10 @@ begin
     P := ExtractFilePath(Application.ExeName);
   if P[Length(P)] <> '\' then
     P := P + '\';
+  if FDest.Text = '' then
+    FDest.Text := ChangeFileExt(FArquivo, '.fdb');
   FProgSrc := FArquivo;
-  FProgDst := P + 'recuperacao\' +
-              ChangeFileExt(ExtractFileName(FArquivo), '') +
-              '_recuperado.fdb';
+  FProgDst := FDest.Text;   // progresso acompanha o destino real
   if FPBar <> nil then
     FPBar.Position := 0;
   if FPctLbl <> nil then
