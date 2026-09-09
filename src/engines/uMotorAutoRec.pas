@@ -338,6 +338,9 @@ begin
     FRelatorio.Add('');
     Exit;
   end;
+  // Anti-duplicata: nao repete a linha anterior identica.
+  if (FRelatorio.Count > 0) and (FRelatorio[FRelatorio.Count - 1] = ALine) then
+    Exit;
   // Trunca linhas de log muito longas (ex.: saida do gbak -v) para o
   // relatorio nao inchar - 120 chars bastam para leitura.
   if Length(ALine) > 120 then
@@ -1023,7 +1026,6 @@ begin
     if Falhas > 0 then
       Resumo := Resumo + '; ' + IntToStr(Falhas) +
                 ' tabela(s) pulada(s) (corrompidas/ilegiveis)';
-    Rel('  [OK]     L2 datapump: ' + Resumo);
     RegistrarPasso('L2 - datapump tabela a tabela (driver fbclient)',
       Resumo, OkT > 0);
     Result := OkT > 0;
@@ -1418,9 +1420,6 @@ begin
       OkVal := ContarBanco(NovoBanco, TabelasNovo, RegNovo, Msg);
       if OkVal then
       begin
-        Rel('  [OK]     banco reconstruido validado: ' +
-            IntToStr(TabelasNovo) + ' tabelas, ' +
-            Format('%d', [RegNovo]) + ' registros.');
         FArquivoFinal := NovoBanco;
         if FResultado = raNada then
           FResultado := raParcial;
