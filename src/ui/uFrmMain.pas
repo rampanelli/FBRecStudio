@@ -395,7 +395,11 @@ begin
   if FRecThread <> nil then
   begin
     FRecCancelar := True;   // o motor encerra os subprocessos
+    // Espera a thread terminar antes de liberar (evita crash no
+    // fechamento com operacao ativa); WaitFor bombeia mensagens.
+    FRecThread.WaitFor;
     FRecThread.Free;
+    FRecThread := nil;
   end;
   FQCS.Enter;
   try
@@ -1360,6 +1364,61 @@ begin
 end;
 
 // ====================================================================
+// Adaptador ILogPasso -> fila da GUI: leva as mensagens do motor de
+// recuperacao para o painel AO VIVO (mesma fila + timer do gbak).
+// ====================================================================
+type
+  TLogFila = class(TInterfacedObject, ILogPasso)
+  private
+    FQ: TStringList;
+    FCS: TCriticalSection;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure SetFila(AQ: TStringList; ACS: TCriticalSection);
+    procedure Log(const ACanal: string; const AMensagem: string);
+  end;
+
+constructor TLogFila.Create;
+begin
+  inherited Create;
+  FQ := nil;
+  FCS := nil;
+end;
+
+destructor TLogFila.Destroy;
+begin
+  FQ := nil;
+  FCS := nil;
+  inherited Destroy;
+end;
+
+procedure TLogFila.SetFila(AQ: TStringList; ACS: TCriticalSection);
+begin
+  FQ := AQ;
+  FCS := ACS;
+end;
+
+procedure TLogFila.Log(const ACanal: string; const AMensagem: string);
+var
+  S: string;
+begin
+  if FQ = nil then
+    Exit;
+  if (ACanal = LC_APP) or (ACanal = '') then
+    S := AMensagem
+  else
+    S := '[' + ACanal + '] ' + AMensagem;
+  FCS.Enter;
+  try
+    if FQ.Count < 20000 then
+      FQ.Add(S);
+  finally
+    FCS.Leave;
+  end;
+end;
+
+// ====================================================================
 // TRecThread - recuperacao automatica (uMotorAutoRec) em background.
 // ====================================================================
 constructor TRecThread.Create(const AArquivo, AUser, ASenha: string);
@@ -1380,6 +1439,8 @@ var
   N: Integer;
   Entrada: TRecAutoEntrada;
   Motor: TMotorAutoRec;
+  FilaLog: TLogFila;
+  IntfLog: ILogPasso;
   Res: TRecAutoResultado;
   I: Integer;
   P: string;
@@ -1400,7 +1461,11 @@ begin
       Entrada.TimeoutMs := 0;      // default interno (30 min/passo)
       Entrada.PermitirReparoMend := True;
       Entrada.Bins := Bins;
-      Motor := TMotorAutoRec.Create(Entrada, nil);
+      // Log ao vivo: as mensagens do motor vao para o painel via fila.
+      FilaLog := TLogFila.Create;
+      FilaLog.SetFila(frmMain.FQ, frmMain.FQCS);
+      IntfLog := FilaLog;
+      Motor := TMotorAutoRec.Create(Entrada, IntfLog);
       try
         Motor.AtribuirCancelamento(@frmMain.FRecCancelar);
         Res := Motor.Executar;
@@ -1420,7 +1485,7 @@ begin
             P := P + '\';
           RelPath := P + 'recuperacao_' +
                      ChangeFileExt(ExtractFileName(FArquivo), '') +
-                     '\relatorio_recuperacao.txt';
+                     'elatorio_recuperacao.txt';
         end;
         if (RelPath <> '') and Motor.SalvarRelatorio(RelPath) then
         begin
@@ -1431,6 +1496,7 @@ begin
         end;
       finally
         Motor.Free;
+        IntfLog := nil;   // libera o adaptador de log (refcount)
       end;
     finally
       Extras.Free;
@@ -1446,6 +1512,7 @@ end;
 procedure TfrmMain.DoRecuperar(Sender: TObject);
 var
   Msg: string;
+  P: string;
 begin
   if (FWorker <> nil) or (FRecThread <> nil) then
   begin
@@ -1471,10 +1538,22 @@ begin
     Exit;
   FRecCancelar := False;
   FOpAtiva := True;
+  // Progresso real: a barra acompanha o crescimento do banco sendo
+  // restaurado (mesma heuristica do restore manual).
+  P := ExtractFilePath(FArquivo);
+  if P = '' then
+    P := ExtractFilePath(Application.ExeName);
+  if P[Length(P)] <> '\' then
+    P := P + '\';
+  FProgSrc := FArquivo;
+  FProgDst := P + 'recuperacao_' +
+              ChangeFileExt(ExtractFileName(FArquivo), '') + '\' +
+              ChangeFileExt(ExtractFileName(FArquivo), '') +
+              '_recuperado.fdb';
   if FPBar <> nil then
     FPBar.Position := 0;
   if FPctLbl <> nil then
-    FPctLbl.Caption := 'recuperando...';
+    FPctLbl.Caption := '0% (recuperando...)';
   FRecThread := TRecThread.Create(FArquivo, FUser.Text, FPass.Text);
   FRecThread.Resume;
   AtualizarStatus('recuperando (automatico)...');
@@ -1507,18 +1586,24 @@ begin
     FPctLbl.Caption := 'concluido';
   AddLine('');
   AddLine('=== Recuperacao automatica concluida ===');
-  // Relatorio completo no painel (ate 400 linhas por seguranca).
-  I := 0;
-  while R <> '' do
-  begin
-    AddLine(R);
-    Inc(I);
-    if I > 400 then
+  // Relatorio completo no painel (ate 400 linhas por seguranca), em
+  // lote para nao travar a interface linha a linha.
+  FLog.Lines.BeginUpdate;
+  try
+    I := 0;
+    while R <> '' do
     begin
-      AddLine('... (relatorio completo salvo em arquivo .txt)');
-      Break;
+      AddLine(R);
+      Inc(I);
+      if I > 400 then
+      begin
+        AddLine('... (relatorio completo salvo em arquivo .txt)');
+        Break;
+      end;
+      R := Copy(R, Pos(#13#10, R + #13#10) + 2, MaxInt);
     end;
-    R := Copy(R, Pos(#13#10, R + #13#10) + 2, MaxInt);
+  finally
+    FLog.Lines.EndUpdate;
   end;
   AtualizarStatus('recuperacao: ' + RecAutoResultadoParaTexto(V) +
                   ' (ver relatorio no painel).');
