@@ -134,8 +134,15 @@ type
   end;
 
   PXSQLDA = ^TXSQLDA;
-  TXSQLDA = packed record
+  // Cabecalho do XSQLDA EXTENDIDO (sqlda_pub.h do Firebird 2.5):
+  // version(2) + sqldaid[8] + sqldabc(4, alinhado) + sqln(2) + sqld(2)
+  // = 20 bytes antes de sqlvar; SizeOf = 20 + SizeOf(TSQLVAR) = 172 no
+  // cliente 32-bit (o record NAO e packed para o Longint ganhar o mesmo
+  // alinhamento de 4 bytes do C; sem isso o fetch falha com -804).
+  TXSQLDA = record
     version: Smallint;
+    sqldaid: array[0..7] of AnsiChar;
+    sqldabc: Longint;
     sqln: Smallint;
     sqld: Smallint;
     sqlvar: array[0..0] of TSQLVAR;
@@ -298,19 +305,6 @@ type
     property Fechado: Boolean read FFechado;
     property ErroInit: string read FErroInit;
   end;
-
-// ------------------------------------------------------------------
-// Funcoes livres internas (helpers de conversao)
-// ------------------------------------------------------------------
-function XSQLDA_LENGTH(AN: Integer): Integer;
-function BytesAnsi(const ABuf: Pointer; ALen: Integer): AnsiString;
-function NomeTabelaSQL(const ANome: string): string;
-function ValorEscalado(const ARaw: Int64; AScale: Smallint): string;
-function TextoData(ADias: Longint): string;
-function TextoTempo(ATicks: Longint): string;
-function TextoTimestamp(const AData: Pointer): string;
-function NomeColuna(const V: PSQLVAR): string;
-function TipoColuna(const V: PSQLVAR): string;
 
 // ==================================================================
 // Helpers
@@ -560,7 +554,7 @@ begin
     Exit;
   end;
   // Describe em 2 fases (realoca quando ha mais colunas que o previsto).
-  FSqlda := GetMem(XSQLDA_LENGTH(K_SQLN_INICIAL));
+  GetMem(FSqlda, XSQLDA_LENGTH(K_SQLN_INICIAL));
   FillChar(FSqlda^, XSQLDA_LENGTH(K_SQLN_INICIAL), 0);
   FSqlda.version := SQLDA_VERSION;
   FSqlda.sqln := K_SQLN_INICIAL;
@@ -575,7 +569,8 @@ begin
   begin
     Larg := FSqlda.sqld;
     FreeMem(FSqlda);
-    FSqlda := GetMem(XSQLDA_LENGTH(Larg));
+    FSqlda := nil;
+    GetMem(FSqlda, XSQLDA_LENGTH(Larg));
     FillChar(FSqlda^, XSQLDA_LENGTH(Larg), 0);
     FSqlda.version := SQLDA_VERSION;
     FSqlda.sqln := Larg;
@@ -590,6 +585,15 @@ begin
   FNCols := FSqlda.sqld;
   if FNCols < 0 then
     FNCols := 0;
+  // ===== DEBUG TEMP =====
+  WriteLn(Format('DBG describe ver=%d sqln=%d sqld=%d sizevar=%d sizehdr=%d',
+    [FSqlda.version, FSqlda.sqln, FSqlda.sqld, SizeOf(TSQLVAR), SizeOf(TXSQLDA)]));
+  for I := 0 to FNCols - 1 do
+    WriteLn(Format('DBG var[%d] type=%d len=%d scale=%d sub=%d [%s]',
+      [I, FSqlda.sqlvar[I].sqltype, FSqlda.sqlvar[I].sqllen,
+       FSqlda.sqlvar[I].sqlscale, FSqlda.sqlvar[I].sqlsubtype,
+       string(BytesAnsi(@FSqlda.sqlvar[I].sqlname[0],
+         FSqlda.sqlvar[I].sqlname_length))]));
   // Aloca os buffers de dados e de indicador de NULL por coluna.
   SetLength(FBufs, FNCols);
   SetLength(FInds, FNCols);

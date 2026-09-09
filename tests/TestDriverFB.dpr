@@ -47,7 +47,7 @@ const
   K_MAX_TABELAS = 5;
 
 var
-  Banco, DllDir, Saida: string;
+  Banco, DllDir, Saida, TabelaUnica: string;
   Drv: IDriverFBConsulta;
   Msg: string;
   Tabelas: TStringList;
@@ -90,6 +90,8 @@ begin
   Saida := ParamStr(3);
   if Saida = '' then
     Saida := 'D:\SCANFILES\fbz1\drvout';
+  // argv[4] opcional: tabela unica a exportar (prova dirigida, ex.: BLOB).
+  TabelaUnica := ParamStr(4);
 
   WriteLn('TestDriverFB - driver real fbclient.dll (embarcado)');
   WriteLn('banco      : ' + Banco);
@@ -120,24 +122,43 @@ begin
 
     // (b) Escolhe ate 5 tabelas COM registros (via contagem).
     EscolhidasCount := 0;
-    for I := 0 to Tabelas.Count - 1 do
+    if TabelaUnica <> '' then
     begin
-      if EscolhidasCount >= K_MAX_TABELAS then
-        Break;
-      if not Drv.ContarRegistros(Tabelas[I], Total, Msg) then
+      // prova dirigida: exporta so a tabela pedida (se tiver registros)
+      if not Drv.ContarRegistros(TabelaUnica, Total, Msg) then
       begin
-        WriteLn('AVISO_CONTAGEM ' + Tabelas[I] + ': ' + Msg);
-        Continue;
+        WriteLn('ERRO_CONTAGEM ' + TabelaUnica + ': ' + Msg);
+        ExitCode := 4;
+        Exit;
       end;
+      WriteLn('SELECIONADA ' + TabelaUnica + ' (registros=' +
+              IntToStr(Total) + ') [prova dirigida]');
       if Total > 0 then
       begin
-        SetLength(Escolhidas, EscolhidasCount + 1);
-        Escolhidas[EscolhidasCount] := Tabelas[I];
-        Inc(EscolhidasCount);
-        WriteLn('SELECIONADA ' + Tabelas[I] + ' (registros=' +
-                IntToStr(Total) + ')');
+        SetLength(Escolhidas, 1);
+        Escolhidas[0] := TabelaUnica;
+        EscolhidasCount := 1;
       end;
-    end;
+    end
+    else
+      for I := 0 to Tabelas.Count - 1 do
+      begin
+        if EscolhidasCount >= K_MAX_TABELAS then
+          Break;
+        if not Drv.ContarRegistros(Tabelas[I], Total, Msg) then
+        begin
+          WriteLn('AVISO_CONTAGEM ' + Tabelas[I] + ': ' + Msg);
+          Continue;
+        end;
+        if Total > 0 then
+        begin
+          SetLength(Escolhidas, EscolhidasCount + 1);
+          Escolhidas[EscolhidasCount] := Tabelas[I];
+          Inc(EscolhidasCount);
+          WriteLn('SELECIONADA ' + Tabelas[I] + ' (registros=' +
+                  IntToStr(Total) + ')');
+        end;
+      end;
     WriteLn('');
     if EscolhidasCount = 0 then
     begin

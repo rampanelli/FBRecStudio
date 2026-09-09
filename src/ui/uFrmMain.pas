@@ -1405,13 +1405,18 @@ var
 begin
   if FQ = nil then
     Exit;
+  // NAO inundar o painel com o despejo cru das ferramentas (gbak -v
+  // emite milhares de linhas e afoga o TMemo da interface): somente
+  // as mensagens de ETAPA do motor (canal app) vao ao vivo.
+  if (ACanal = LC_STDOUT) or (ACanal = LC_STDERR) then
+    Exit;
   if (ACanal = LC_APP) or (ACanal = '') then
     S := AMensagem
   else
     S := '[' + ACanal + '] ' + AMensagem;
   FCS.Enter;
   try
-    if FQ.Count < 20000 then
+    if FQ.Count < 8000 then
       FQ.Add(S);
   finally
     FCS.Leave;
@@ -1701,8 +1706,8 @@ end;
 procedure TfrmMain.DrainLive;
 const
   K_DRAIN_TICK = 1500;   // linhas por tick (350 ms)
-  K_LOG_MAX = 12000;     // teto do memo (descarta as mais antigas)
-  K_LOG_TRIM = 9000;     // tamanho apos o descarte
+  K_LOG_MAX = 4000;      // teto do memo (descarta as mais antigas)
+  K_LOG_TRIM = 2500;     // tamanho apos o descarte
 var
   L: TStringList;
   I, N: Integer;
