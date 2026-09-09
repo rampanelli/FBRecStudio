@@ -38,6 +38,7 @@ var
   I: Integer;
 
 begin
+  Motor := nil;
   try
     if ParamCount < 1 then
     begin
@@ -85,7 +86,18 @@ begin
       try
         CancelFlag := False;
         Motor.AtribuirCancelamento(@CancelFlag);
-        Resultado := Motor.Executar;
+        try
+          Resultado := Motor.Executar;
+        except
+          on E: Exception do
+          begin
+            WriteLn('EXCECAO_NA_EXECUCAO: ' + E.ClassName + ' - ' +
+                    E.Message);
+            for I := 0 to Motor.Relatorio.Count - 1 do
+              WriteLn(Motor.Relatorio[I]);
+            raise;
+          end;
+        end;
 
         WriteLn('');
         WriteLn('================ RELATORIO ================');
@@ -112,6 +124,7 @@ begin
         end;
       finally
         Motor.Free;
+        Motor := nil;
       end;
     finally
       Extras.Free;
@@ -120,6 +133,13 @@ begin
     on E: Exception do
     begin
       WriteLn('EXCECAO: ' + E.ClassName + ' - ' + E.Message);
+      // Relatorio parcial ajuda a achar onde a excecao ocorreu.
+      if Motor <> nil then
+      begin
+        WriteLn('--- RELATORIO PARCIAL ---');
+        for I := 0 to Motor.Relatorio.Count - 1 do
+          WriteLn(Motor.Relatorio[I]);
+      end;
       Halt(3);
     end;
   end;

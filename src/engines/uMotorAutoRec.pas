@@ -123,11 +123,20 @@ type
     // Tecnica L4 (ultima barreira; leitura pura).
     procedure TecnicaExtratorTexto(const AAlvo: string);
     // Tecnica L2: datapump tabela a tabela via driver fbclient (extrai
-    // o que der, pulando tabelas corrompidas).
-    procedure TecnicaDatapump(const ABanco: string);
+    // o que der, pulando tabelas corrompidas). True = ao menos uma
+    // tabela exportada (habilita a reconstrucao).
+    function TecnicaDatapump(const ABanco: string): Boolean;
+    // Tecnica L2b: reconstroi um banco NOVO a partir dos CSVs do
+    // datapump (DDL real via isql -extract + INSERTs dos dados).
+    procedure TecnicaReconstruir(const AOrigemDados: string);
     // Utilitario para rodar isql (script temporario).
     function RodarIsql(const AScript: TStrings; out ASaida: TStringList;
       out AMsg: string): Boolean;
+    // Variante com captura de STDERR (erros do isql; nil = descartar).
+    function RodarIsqlComErros(const AScript: TStrings; ADialeto: Integer;
+      out ASaida, AErros: TStringList; out AMsg: string): Boolean;
+    // Detecta o SQL dialect do banco (1 ou 3) via SHOW DATABASE.
+    function DetectarDialeto(const ABanco: string): Integer;
     procedure EscreverSecaoOQueFaltou;
   public
     constructor Create(const AEntrada: TRecAutoEntrada; ALog: ILogPasso);
@@ -155,7 +164,7 @@ implementation
 uses
   uLogger, uQuoting, uTextCodec, uEngineGbak, uEngineGfix,
   uMotorSalvage, uExtratorTexto, uFBSwitchCatalog,
-  uExportBase, uExportCSV, uDriverFBClient;
+  uExportBase, uExportCSV, uDriverFBClient, uExportSQL;
 
 // ------------------------------------------------------------------
 // Constantes locais
@@ -625,16 +634,57 @@ end;
 function TMotorAutoRec.RodarIsql(const AScript: TStrings;
   out ASaida: TStringList; out AMsg: string): Boolean;
 var
+  Err: TStringList;
+begin
+  Err := nil;
+  Result := RodarIsqlComErros(AScript, 3, ASaida, Err, AMsg);
+  Err.Free;
+end;
+
+function TMotorAutoRec.DetectarDialeto(const ABanco: string): Integer;
+var
+  Script, Saida, Er: TStringList;
+  Msg: string;
+  I: Integer;
+begin
+  Result := 3;
+  Script := TStringList.Create;
+  Saida := nil;
+  Er := nil;
+  try
+    Script.Add('CONNECT ''' +
+      StringReplace(ABanco, '''', '''''', [rfReplaceAll]) +
+      ''' USER ''SYSDBA'' PASSWORD ''x'';');
+    Script.Add('SHOW DATABASE;');
+    Script.Add('EXIT;');
+    if RodarIsqlComErros(Script, 3, Saida, Er, Msg) and (Saida <> nil) then
+      for I := 0 to Saida.Count - 1 do
+        if Pos('dialect 1', LowerCase(Saida[I])) > 0 then
+        begin
+          Result := 1;
+          Break;
+        end;
+  finally
+    Er.Free;
+    Saida.Free;
+    Script.Free;
+  end;
+end;
+
+function TMotorAutoRec.RodarIsqlComErros(const AScript: TStrings;
+  ADialeto: Integer; out ASaida, AErros: TStringList;
+  out AMsg: string): Boolean;
+var
   Opt: TProcessOptions;
   Res: TProcessResult;
   ArquivoScript: string;
-  I, N: Integer;
+  I, K: Integer;
   Args: array[0..9] of string;
-  K: Integer;
 begin
   Result := False;
   AMsg := '';
   ASaida := nil;
+  AErros := nil;
   if (Length(FEntrada.Bins) = 0) or (not FEntrada.Bins[0].TemIsql) then
   begin
     AMsg := 'engine selecionado sem isql.exe';
@@ -673,6 +723,14 @@ begin
     Args[K] := '-pass'; Inc(K);
     Args[K] := FEntrada.Senha; Inc(K);
   end;
+  // Dialeto do banco: o isql -extract gera DDL fiel ao dialeto do
+  // ORIGINAL (bancos legados sao dialeto 1 - concatenacao com '+',
+  // que falha em banco dialeto 3). Criar/aplicar com o MESMO dialeto.
+  if (ADialeto = 1) or (ADialeto = 3) then
+  begin
+    Args[K] := '-s'; Inc(K);
+    Args[K] := IntToStr(ADialeto); Inc(K);
+  end;
   Args[K] := '-i'; Inc(K);
   Args[K] := ArquivoScript; Inc(K);
 
@@ -686,8 +744,9 @@ begin
   Opt.ConsoleCodePage := 0;
 
   ASaida := TStringList.Create;
+  AErros := TStringList.Create;
   try
-    Res := BuildAndRun(Opt, ASaida, nil);
+    Res := BuildAndRun(Opt, ASaida, AErros);
     if Res.Ok then
       Result := True
     else
@@ -863,9 +922,10 @@ end;
 // Tecnica L2 - datapump tabela a tabela (driver fbclient): abre o
 // banco com o driver real e exporta cada tabela para .csv, pulando as
 // que falharem. Usa o TExportadorCSV + uDriverFBClient (validados no
-// TestDriverFB).
+// TestDriverFB). Retorna True quando ao menos uma tabela foi
+// exportada (habilita a reconstrucao L2b).
 // ------------------------------------------------------------------
-procedure TMotorAutoRec.TecnicaDatapump(const ABanco: string);
+function TMotorAutoRec.TecnicaDatapump(const ABanco: string): Boolean;
 var
   DllDir: string;
   Drv: IDriverFBConsulta;
@@ -880,6 +940,7 @@ var
   SomaLinhas: Int64;
   Resumo: string;
 begin
+  Result := False;
   Rel('Tecnica L2 - datapump tabela a tabela (driver fbclient) sobre: ' +
       ABanco);
   if Length(FEntrada.Bins) = 0 then
@@ -965,11 +1026,421 @@ begin
     Rel('  [OK]     L2 datapump: ' + Resumo);
     RegistrarPasso('L2 - datapump tabela a tabela (driver fbclient)',
       Resumo, OkT > 0);
+    Result := OkT > 0;
   finally
     P.Free;
     Ex.Free;
     M.Free;
     Tabelas.Free;
+  end;
+end;
+
+// ------------------------------------------------------------------
+// Tecnica L2b - reconstrucao do banco a partir dos dados exportados:
+//  1) DDL REAL do banco original via isql -extract (uExportSQL);
+//  2) banco novo vazio (isql CREATE DATABASE);
+//  3) aplica o DDL no banco novo;
+//  4) importa os CSVs do datapump como INSERTs (isql);
+//  5) valida o banco reconstruido (gfix/isql: tabelas e registros).
+// Limites honestos (v1): campo vazio no CSV vira NULL; BLOBs entram
+// como texto (hex); valide o resultado antes de uso em producao.
+// ------------------------------------------------------------------
+procedure TMotorAutoRec.TecnicaReconstruir(const AOrigemDados: string);
+var
+  NovoBanco, DdlArq, Pasta, Msg, Linha, Nome, V, Col: string;
+  Script, Saida, Erros, ErrosIsql, Linhas: TStringList;
+  Catalogo: ISwitchCatalog;
+  Argv: TStringArray;
+  Opt: TCapturaOptions;
+  Res: TResultadoCaptura;
+  Runner: IProcessRunner;
+  I, J, N, TabelasNovo, TotalIns, Flush: Integer;
+  RegNovo: Int64;
+  OkCria, OkDdl, OkIns, OkVal: Boolean;
+  Achou: Boolean;
+  Dialeto: Integer;
+  SR: TSearchRec;
+  Base, NomeTab, ExtArq: string;
+  Campos, Valores: TStringList;
+  LinhaIns: string;
+
+  // Quebra uma linha CSV (delimitador ';', aspas RFC-4180 com "").
+  procedure QuebrarCsv(const S: string; ADest: TStringList);
+  var
+    P, Inicio: Integer;
+    EntreAspas: Boolean;
+    C: Char;
+  begin
+    ADest.Clear;
+    P := 1;
+    Inicio := 1;
+    EntreAspas := False;
+    while P <= Length(S) do
+    begin
+      C := S[P];
+      if EntreAspas then
+      begin
+        if C = '"' then
+          if (P < Length(S)) and (S[P + 1] = '"') then
+            Inc(P)   // aspas duplicadas = aspa literal
+          else
+            EntreAspas := False
+      end
+      else if C = '"' then
+        EntreAspas := True
+      else if C = ';' then
+      begin
+        ADest.Add(Copy(S, Inicio, P - Inicio));
+        Inicio := P + 1;
+      end;
+      Inc(P);
+    end;
+    ADest.Add(Copy(S, Inicio, MaxInt));
+  end;
+
+  // Valor do CSV -> literal SQL.
+  function ValorParaInsert(const AV: string): string;
+  var
+    K: Integer;
+    Num: Boolean;
+  begin
+    if AV = '' then
+    begin
+      Result := 'NULL';
+      Exit;
+    end;
+    Num := True;
+    K := 1;
+    if (AV[1] = '-') or (AV[1] = '+') then
+      K := 2;
+    for K := K to Length(AV) do
+      if not (AV[K] in ['0'..'9', '.']) then
+      begin
+        Num := False;
+        Break;
+      end;
+    if Num then
+      Result := AV
+    else
+    begin
+      Result := '''' + StringReplace(AV, '''', '''''', [rfReplaceAll]) + '''';
+    end;
+  end;
+
+begin
+  NovoBanco := CaminhoArtefato('_reconstruido', K_EXT_DB);
+  if FEntrada.Destino <> '' then
+    NovoBanco := ChangeFileExt(FEntrada.Destino, '') + '_reconstruido.fdb';
+  Rel('Tecnica L2b - reconstruindo banco novo a partir dos dados exportados');
+  Rel('Banco reconstruido: ' + NovoBanco);
+  // O banco novo precisa do MESMO dialeto do original (DDL fiel).
+  Dialeto := DetectarDialeto(AOrigemDados);
+  Rel('Dialeto do banco original: ' + IntToStr(Dialeto));
+  if FileExists(NovoBanco) then
+    SysUtils.DeleteFile(NovoBanco);
+
+  // (1) DDL real do original (isql -extract).
+  DdlArq := CaminhoArtefato('_ddl', '.sql');
+  Erros := TStringList.Create;
+  Runner := TProcessRunner.Create;
+  try
+    Catalogo := CriarCatalogPadrao;
+    MontarArgvIsqlExtract(FEntrada.Usuario, FEntrada.Senha, '',
+      AOrigemDados, Catalogo, FEntrada.Bins[0].Versao, Argv, Msg);
+    if Msg = '' then
+    begin
+      Opt.Executavel := FEntrada.Bins[0].CaminhoBin + 'isql.exe';
+      Opt.WorkDir := '';
+      Opt.Args := Argv;
+      Opt.Destino := DdlArq;
+      Opt.Charset := '';
+      Opt.TetoBytes := 0;
+      Opt.TimeoutMs := FTimeoutPadrao;
+      Opt.KillTree := True;
+      Opt.ConsoleCodePage := 0;
+      Res := CapturarStdoutParaArquivo(Runner, Opt, nil, Erros);
+      if not (Res.Ok and FileExists(DdlArq)) then
+      begin
+        RegistrarPasso('L2b - reconstrucao (DDL isql -extract)',
+          'falhou ao extrair o DDL: ' + Res.Erro, False);
+        Exit;
+      end;
+    end
+    else
+    begin
+      RegistrarPasso('L2b - reconstrucao (DDL isql -extract)',
+        'falha ao montar o isql: ' + Msg, False);
+      Exit;
+    end;
+  finally
+    Runner := nil;
+    Erros.Free;
+  end;
+
+  // (2) Cria o banco novo vazio.
+  Script := TStringList.Create;
+  Saida := nil;
+  ErrosIsql := nil;
+  try
+    Script.Add('CREATE DATABASE ''' +
+      StringReplace(NovoBanco, '''', '''''', [rfReplaceAll]) +
+      ''' USER ''SYSDBA'' PASSWORD ''x'';');
+    Script.Add('EXIT;');
+    OkCria := RodarIsqlComErros(Script, Dialeto, Saida, ErrosIsql, Msg);
+    ErrosIsql.Free;
+    ErrosIsql := nil;
+    Saida.Free;
+    Saida := nil;
+    if not (OkCria and FileExists(NovoBanco)) then
+    begin
+      RegistrarPasso('L2b - criacao do banco novo', Msg, False);
+      Exit;
+    end;
+    Rel('  [OK]     banco novo criado: ' + NovoBanco);
+
+    // (3) Aplica o DDL no banco novo.
+    Script.Clear;
+    if FileExists(DdlArq) then
+      Script.LoadFromFile(DdlArq);
+    // O isql -extract comeca com cabecalho (SET NAMES/CONNECT do banco
+    // ORIGINAL). Remove o cabecalho e aplica o nosso: dialeto 3 +
+    // CONNECT para o banco NOVO (senao o DDL roda contra o original
+    // ou com dialeto 1, e o isql novo dos INSERTs fica desconectado).
+    OkDdl := False;
+    I := 0;
+    while I < Script.Count do
+    begin
+      if Copy(Trim(UpperCase(Script[I])), 1, 9) = 'SET NAMES' then
+        Script.Delete(I)
+      else if Copy(Trim(UpperCase(Script[I])), 1, 16) = 'SET SQL DIALECT' then
+        Script.Delete(I)
+      else if Copy(Trim(UpperCase(Script[I])), 1, 8) = 'CONNECT ' then
+        Script.Delete(I)
+      else if Copy(Trim(UpperCase(Script[I])), 1, 11) = 'SET AUTODDL' then
+        Script.Delete(I)
+      else if Trim(UpperCase(Script[I])) = 'COMMIT WORK;' then
+        Script.Delete(I)
+      else
+        Inc(I);
+    end;
+    Script.Insert(0, 'COMMIT WORK;');
+    Script.Insert(0, 'SET AUTODDL ON;');
+    Script.Insert(0, 'CONNECT ''' +
+      StringReplace(NovoBanco, '''', '''''', [rfReplaceAll]) +
+      ''' USER ''SYSDBA'' PASSWORD ''x'';');
+    Script.Insert(0, 'SET SQL DIALECT ' + IntToStr(Dialeto) + ';');
+    Script.Insert(0, 'SET NAMES WIN1252;');
+    // REPARO do DDL (isql -extract): numeros largos em CHECK saem
+    // corrompidos ('+999****9999.99' - sintaxe invalida). Remove o
+    // CHECK do dominio afetado, mantendo o tipo (dominio valido).
+    I := 0;
+    while I < Script.Count do
+    begin
+      if Copy(Trim(UpperCase(Script[I])), 1, 13) = 'CREATE DOMAIN' then
+      begin
+        J := I;
+        Achou := False;
+        while J < Script.Count do
+        begin
+          if Pos('****', Script[J]) > 0 then
+          begin
+            Achou := True;
+            Break;
+          end;
+          if (Pos(';', Script[J]) > 0) and (J > I) then
+            Break;   // dominio normal terminou sem asterisco
+          Inc(J);
+        end;
+        if Achou then
+        begin
+          // Reconstrói: "CREATE DOMAIN <nome> AS <tipo>;"
+          Linha := Script[I];
+          V := Copy(Linha, 14, MaxInt);   // <nome> AS <tipo>...
+          Nome := Trim(Copy(V, 1, Pos(' AS ', V) - 1));
+          Col := Trim(Copy(V, Pos(' AS ', V) + 4, MaxInt));
+          // Remove eventual 'CHECK' e o que segue.
+          if Pos('CHECK', Col) > 0 then
+            Col := Trim(Copy(Col, 1, Pos('CHECK', Col) - 1));
+          if Col = '' then
+            Col := 'VARCHAR(100)';   // fallback defensivo
+          LinhaIns := 'CREATE DOMAIN ' + Nome + ' AS ' + Col + ';';
+          while J >= I do
+          begin
+            Script.Delete(J);
+            Dec(J);
+          end;
+          Script.Insert(I, LinhaIns);
+        end;
+      end;
+      Inc(I);
+    end;
+    if Script.Count > 0 then
+    begin
+      OkDdl := RodarIsqlComErros(Script, Dialeto, Saida, ErrosIsql, Msg);
+      if not OkDdl then
+      begin
+        Rel('  [AVISO]  DDL com erros parciais (o banco novo nao tem ' +
+            'usuarios/papeis do original, ex.: GRANT):');
+        if Saida <> nil then
+          for I := 0 to Saida.Count - 1 do
+            if I < 8 then
+              Rel('           [isql] ' + Saida[I])
+            else
+              Break;
+        if ErrosIsql <> nil then
+          for I := 0 to ErrosIsql.Count - 1 do
+            if I < 10 then
+              Rel('           [erro] ' + ErrosIsql[I])
+            else
+              Break;
+      end;
+      ErrosIsql.Free;
+      ErrosIsql := nil;
+      Saida.Free;
+      Saida := nil;
+    end;
+    if OkDdl then
+      Rel('  [OK]     DDL aplicado (estrutura recriada).')
+    else
+      Rel('  [INFO]   DDL aplicado com avisos; a validacao ao final decide.');
+
+    // (4) Importa os CSVs do datapump como INSERTs (isql em lote).
+    Linhas := TStringList.Create;
+    Campos := TStringList.Create;
+    Valores := TStringList.Create;
+    TotalIns := 0;
+    Flush := 0;
+    // Conexao do script de INSERTs: dialeto 3 + banco novo.
+    Linhas.Add('SET NAMES WIN1252;');
+    Linhas.Add('SET SQL DIALECT ' + IntToStr(Dialeto) + ';');
+    Linhas.Add('CONNECT ''' +
+      StringReplace(NovoBanco, '''', '''''', [rfReplaceAll]) +
+      ''' USER ''SYSDBA'' PASSWORD ''x'';');
+    Linhas.Add('COMMIT WORK;');
+    Pasta := FEntrada.PastaTrabalho;
+    Base := NomeBaseOrigem + '.';
+    try
+      if FindFirst(Pasta + '\*.csv', faAnyFile, SR) = 0 then
+      try
+        repeat
+          ExtArq := ExtractFileName(SR.Name);
+          if Copy(ExtArq, 1, Length(Base)) <> Base then
+            Continue;
+          NomeTab := Copy(ExtArq, Length(Base) + 1,
+                         Length(ExtArq) - Length(Base) - 4);
+          if NomeTab = '' then
+            Continue;
+          Script.Clear;
+          Script.LoadFromFile(Pasta + '\' + ExtArq);
+          if Script.Count < 2 then
+            Continue;   // so cabecalho (tabela vazia)
+          QuebrarCsv(Script[0], Campos);   // nomes das colunas
+          // Lista de colunas: em dialeto 1 aspas duplas sao STRING
+          // (nao identificador) - usar nomes puros; em dialeto 3 usa
+          // aspas duplas.
+          Col := '';
+          for J := 0 to Campos.Count - 1 do
+          begin
+            if Col <> '' then
+              Col := Col + ', ';
+            if Dialeto = 1 then
+              Col := Col + Campos[J]
+            else
+              Col := Col + '"' + StringReplace(Campos[J], '"', '""',
+                    [rfReplaceAll]) + '"';
+          end;
+          for I := 1 to Script.Count - 1 do
+          begin
+            if Trim(Script[I]) = '' then
+              Continue;
+            QuebrarCsv(Script[I], Valores);
+            V := '';
+            for J := 0 to Valores.Count - 1 do
+            begin
+              if V <> '' then
+                V := V + ', ';
+              V := V + ValorParaInsert(Valores[J]);
+            end;
+            if Dialeto = 1 then
+              LinhaIns := 'INSERT INTO ' + NomeTab + ' (' +
+                Col + ') VALUES (' + V + ');'
+            else
+              LinhaIns := 'INSERT INTO "' +
+                StringReplace(NomeTab, '"', '""', [rfReplaceAll]) + '" (' +
+                Col + ') VALUES (' + V + ');';
+            Linhas.Add(LinhaIns);
+            Inc(TotalIns);
+            Inc(Flush);
+            if Flush >= 400 then
+            begin
+              Linhas.Add('COMMIT;');
+              Flush := 0;
+            end;
+          end;
+        until FindNext(SR) <> 0;
+      finally
+        SysUtils.FindClose(SR);
+      end;
+
+      if TotalIns > 0 then
+      begin
+        Linhas.Add('COMMIT;');
+        Linhas.Add('EXIT;');
+        OkIns := RodarIsqlComErros(Linhas, Dialeto, Saida, ErrosIsql, Msg);
+        Saida.Free;
+        Saida := nil;
+        if not OkIns then
+        begin
+          Rel('  [AVISO]  importacao com erros parciais (os dados ficam ' +
+              'preservados nos CSVs do datapump):');
+          if Saida <> nil then
+            for I := 0 to Saida.Count - 1 do
+              if I < 8 then
+                Rel('           [isql] ' + Saida[I])
+              else
+                Break;
+          if ErrosIsql <> nil then
+            for I := 0 to ErrosIsql.Count - 1 do
+              if I < 10 then
+                Rel('           [erro] ' + ErrosIsql[I])
+              else
+                Break;
+        end;
+        ErrosIsql.Free;
+        ErrosIsql := nil;
+      end
+      else
+        OkIns := True;
+      Rel('  [OK]     dados importados: ' + IntToStr(TotalIns) +
+          ' registros em INSERTs.');
+
+      // (5) Valida o banco reconstruido (tabelas e registros).
+      OkVal := ContarBanco(NovoBanco, TabelasNovo, RegNovo, Msg);
+      if OkVal then
+      begin
+        Rel('  [OK]     banco reconstruido validado: ' +
+            IntToStr(TabelasNovo) + ' tabelas, ' +
+            Format('%d', [RegNovo]) + ' registros.');
+        FArquivoFinal := NovoBanco;
+        if FResultado = raNada then
+          FResultado := raParcial;
+        RegistrarPasso('L2b - reconstrucao do banco',
+          'banco reconstruido: ' + NovoBanco + ' (' +
+          IntToStr(TabelasNovo) + ' tabelas, ' +
+          Format('%d', [RegNovo]) + ' registros)', True);
+      end
+      else
+      begin
+        RegistrarPasso('L2b - reconstrucao do banco',
+          'banco criado, mas a validacao falhou: ' + Msg, False);
+      end;
+    finally
+      Valores.Free;
+      Campos.Free;
+      Linhas.Free;
+    end;
+  finally
+    Script.Free;
   end;
 end;
 
@@ -1244,7 +1715,9 @@ begin
               IntToStr(GetLastError) + ')');
       end;
       // L2 - datapump tabela a tabela: extrai o que der (driver real).
-      TecnicaDatapump(Alvo);
+      // Se exportou ao menos uma tabela, reconstroi um banco novo.
+      if TecnicaDatapump(Alvo) then
+        TecnicaReconstruir(Alvo);
       if ContarBanco(Alvo, Tabelas, Registros, MsgCont) then
       begin
         FArquivoFinal := Alvo;

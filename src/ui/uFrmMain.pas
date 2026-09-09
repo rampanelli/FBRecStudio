@@ -1721,7 +1721,17 @@ begin
        'Confirma?') <> IDYES then
     Exit;
   FRecCancelar := False;
-    FOpAtiva := True;
+  // Relatorio sempre zerado: painel limpo + fila limpa - cada execucao
+  // gera um relatorio NOVO, sem itens duplicados.
+  FQCS.Enter;
+  try
+    FQ.Clear;
+  finally
+    FQCS.Leave;
+  end;
+  if FLog <> nil then
+    FLog.Lines.Clear;
+  FOpAtiva := True;
         FTempoIni := Now;
         SalvarCredenciais(ExtAtual);
         // Progresso real: a barra acompanha o crescimento do banco sendo
