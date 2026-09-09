@@ -28,7 +28,7 @@ combina tecnicas.
 | Limpar transacoes limbo (-kill, FB3+) | gfix | transacoes limbo | engine gfix |
 | Backup do que abre (gbak -b; com -ig se necessario) | gbak | isolar o que e legivel | L3 |
 | Exportar DDL (isql -extract) | isql | estrutura para recriar | Exportar SQL (GUI) |
-| Exportar dados por tabela (datapump) | driver fbclient | extracao fina pulando tabelas ruins | PENDENTE (requer driver fbclient - F5; registrado como tal) |
+| Exportar dados por tabela (datapump) | driver fbclient | extracao fina pulando tabelas ruins | Driver REAL pronto: uDriverFBClient (LoadLibrary dinamico, API ISC) validado contra banco Firebird 2.5 real (283 tabelas listadas, CSVs com dados). Ligacao no fluxo automatico (uMotorAutoRec L2) e na GUI: proximo passo. |
 | Extracao de texto das paginas | uExtratorTexto | ultima barreira | L4 |
 
 ## 2. Decisao de escolha (passo 1 do fluxo automatico)
@@ -64,8 +64,10 @@ o que falhou e por que) / nada (com orientacao do que fazer).
 
 ## 4. Lacunas conhecidas (honestas)
 
-- L2 datapump tabela a tabela depende do driver de dados (fbclient) -
-  fica registrada como "nao tentada" no relatorio, nunca como sucesso;
+- L2 datapump tabela a tabela: o driver REAL (uDriverFBClient) esta pronto e
+  validado (283 tabelas lidas de banco Firebird 2.5 real; CSVs com dados);
+  falta liga-lo ao fluxo automatico (uMotorAutoRec) e a GUI - enquanto isso,
+  o relatorio registra a camada como "nao tentada", nunca como sucesso;
 - bancos ODS de Firebird 4/5 exigem gbak/gfix dessas versoes (o kit
   embarcado v0.3 traz Firebird 2.5.9); a ferramenta orienta, nao faz
   downgrade;
