@@ -530,11 +530,14 @@ var
 
   // Token do catalogo. AExigido = True: token essencial p/ a acao
   // (ausencia = falha); False: opcional (ausencia = aviso e omissao).
+  // REGRA (auditoria): acao que ESCREVE no banco nunca roda sem o seu
+  // switch - senao o processo sai com exit 0 e a acao nao aconteceu,
+  // virando "sucesso" falso. Write + token vazio = falha sempre.
   function ObterToken(ASem: TSemanticSwitch; AExigido: Boolean): string;
   begin
     Result := FCatalogo.ObterSwitch(bkGfix, FPlano.VersaoGfix, ASem);
     if Result = '' then
-      if AExigido then
+      if AExigido or GfixAcaoExigeEscrita(FPlano.Acao) then
       begin
         FErroAmbiente := 'O gfix desta versao nao suporta a acao ' +
                          GfixAcaoParaTexto(FPlano.Acao) +
