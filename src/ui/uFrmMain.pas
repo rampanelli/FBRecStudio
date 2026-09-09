@@ -1610,10 +1610,17 @@ begin
 end;
 
 // Drena as linhas "ao vivo" acumuladas pelos workers para o memo.
+// Anti-saturacao (causa historica de "trava" visual com gbak -v):
+// entrega no MAXIMO K_DRAIN_TICK linhas por tick (o resto fica na
+// fila), usa BeginUpdate/EndUpdate e limita o tamanho do memo.
 procedure TfrmMain.DrainLive;
+const
+  K_DRAIN_TICK = 1500;   // linhas por tick (350 ms)
+  K_LOG_MAX = 12000;     // teto do memo (descarta as mais antigas)
+  K_LOG_TRIM = 9000;     // tamanho apos o descarte
 var
   L: TStringList;
-  I: Integer;
+  I, N: Integer;
 begin
   if FLog = nil then
     Exit;
@@ -1621,15 +1628,31 @@ begin
   try
     FQCS.Enter;
     try
-      L.Assign(FQ);
-      FQ.Clear;
+      N := FQ.Count;
+      if N > K_DRAIN_TICK then
+        N := K_DRAIN_TICK;
+      for I := 0 to N - 1 do
+        L.Add(FQ[I]);
+      while N > 0 do
+      begin
+        FQ.Delete(0);
+        Dec(N);
+      end;
     finally
       FQCS.Leave;
     end;
     if L.Count > 0 then
     begin
-      for I := 0 to L.Count - 1 do
-        FLog.Lines.Add(L[I]);
+      FLog.Lines.BeginUpdate;
+      try
+        for I := 0 to L.Count - 1 do
+          FLog.Lines.Add(L[I]);
+        if FLog.Lines.Count > K_LOG_MAX then
+          while FLog.Lines.Count > K_LOG_TRIM do
+            FLog.Lines.Delete(0);
+      finally
+        FLog.Lines.EndUpdate;
+      end;
       FLog.SelStart := Length(FLog.Text);
       SendMessage(FLog.Handle, EM_SCROLLCARET, 0, 0);
     end;
