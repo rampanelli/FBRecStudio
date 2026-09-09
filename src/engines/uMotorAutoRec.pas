@@ -319,7 +319,14 @@ end;
 procedure TMotorAutoRec.Rel(const ALine: string);
 begin
   if ALine = '' then
-    FRelatorio.Add('')
+  begin
+    FRelatorio.Add('');
+    Exit;
+  end;
+  // Trunca linhas de log muito longas (ex.: saida do gbak -v) para o
+  // relatorio nao inchar - 120 chars bastam para leitura.
+  if Length(ALine) > 120 then
+    FRelatorio.Add(Copy(ALine, 1, 120) + '...')
   else
     FRelatorio.Add(ALine);
 end;
@@ -336,16 +343,19 @@ procedure TMotorAutoRec.RegistrarPasso(const ATitulo, ADetalhe: string;
   AOk: Boolean);
 var
   N: Integer;
+  S: string;
 begin
   N := Length(FPassos);
   SetLength(FPassos, N + 1);
   FPassos[N].Titulo := ATitulo;
   FPassos[N].Ok := AOk;
   FPassos[N].Detalhe := ADetalhe;
+  // Timestamp de cada etapa (horario de fim).
+  S := FormatDateTime('hh:nn:ss', Now);
   if AOk then
-    Rel('  [OK]     ' + ATitulo)
+    Rel('  [' + S + '] [OK]     ' + ATitulo)
   else
-    Rel('  [FALHA]  ' + ATitulo);
+    Rel('  [' + S + '] [FALHA]  ' + ATitulo);
   if ADetalhe <> '' then
     Rel('           ' + ADetalhe);
 end;
@@ -1122,11 +1132,16 @@ function TMotorAutoRec.Executar: TRecAutoResultado;
 var
   D: TDiagResult;
   Pasta: string;
+  T0, T1: TDateTime;
+  Duracao: Double;
+  H, M, S, Ds: Integer;
+  DuracaoTexto: string;
 begin
   FRelatorio.Clear;
   FPassos := nil;
   FArquivoFinal := '';
   FResultado := raNaoIniciada;
+  T0 := Now;
 
   RelSecao('RELATORIO DE RECUPERACAO AUTOMATICA');
   Rel('Gerado em ' + DateTimeToStr(Now));
@@ -1146,7 +1161,10 @@ begin
   begin
     if Pasta[Length(Pasta)] <> '\' then
       Pasta := Pasta + '\';
-    Pasta := Pasta + 'recuperacao_' + NomeBaseOrigem;
+    // Pasta fixa e simples (nao usa o nome do arquivo - evitava que
+    // o usuario achasse a saida). Sobrescreve artefatos de execucoes
+    // anteriores da MESMA origem; origem diferente gera outra pasta.
+    Pasta := Pasta + 'recuperacao';
   end;
   FEntrada.PastaTrabalho := Pasta;
   if not ForceDirectories(FEntrada.PastaTrabalho) then
@@ -1214,6 +1232,19 @@ begin
     Result := FResultado;
     Exit;
   end;
+  T1 := Now;
+  Duracao := (T1 - T0) * 86400;   // segundos
+  Ds := Round(Duracao);
+  H := Ds div 3600;
+  M := (Ds mod 3600) div 60;
+  S := Ds mod 60;
+  DuracaoTexto := IntToStr(S) + 's';
+  if (M > 0) or (H > 0) then
+    DuracaoTexto := IntToStr(M) + 'm ' + DuracaoTexto;
+  if H > 0 then
+    DuracaoTexto := IntToStr(H) + 'h ' + DuracaoTexto;
+  Rel('');
+  Rel('Tempo total da recuperacao: ' + DuracaoTexto);
   Result := FResultado;
 end;
 

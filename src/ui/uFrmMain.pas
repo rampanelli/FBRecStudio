@@ -35,7 +35,7 @@ uses
   uQuoting, uTextCodec, uHash, uAppConfig, uLogger, uKernelExec,
   uEngineBase, uEngineGbak, uFBVersionInfo, uFBSwitchCatalog,
   uFBAutoDetect, uDiagFileProbe, uHistoryStore, uExportSQL,
-  uMotorAutoRec;
+    uMotorAutoRec, uCredStore, Clipbrd;
 
 type
   // Coletor de saida do motor (sem tocar na UI de dentro do runner).
@@ -111,6 +111,7 @@ type
     FHistoricoPath: string;
     FPBar: TProgressBar;
     FPctLbl: TLabel;
+    FTempoIni: TDateTime;   // inicio da operacao (contador de tempo)
     FTimer: TTimer;
     FQ: TStringList;
     FQCS: TCriticalSection;
@@ -138,9 +139,16 @@ type
     procedure DoExportarSql(Sender: TObject);
     procedure OpSqlConcluida;
     procedure DoAjuda(Sender: TObject);
+    procedure DoCopiar(Sender: TObject);
     procedure DoTick(Sender: TObject);
     procedure DrainLive;
     procedure ProgAtualizar;
+    // Lembranca de sessao (origem/destino/credenciais por tipo).
+    function ExtAtual: string;
+    function CaminhoCofre(const AExt: string): string;
+    procedure CarregarCredenciais(const AExt: string);
+    procedure SalvarCredenciais(const AExt: string);
+    procedure PreencherUltimaSessao;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -154,6 +162,21 @@ implementation
 
 uses
   uSafeCopy;
+
+// ====================================================================
+// Dialogos com titulo e texto curto (apresentacao limpa).
+// ====================================================================
+function ConfirmarDlg(const ATitulo, ATexto: string): Integer;
+begin
+  Result := Application.MessageBox(PChar(ATexto), PChar(ATitulo),
+             MB_ICONQUESTION or MB_YESNOCANCEL);
+end;
+
+function InformarDlg(const ATitulo, ATexto: string): Integer;
+begin
+  Result := Application.MessageBox(PChar(ATexto), PChar(ATitulo),
+             MB_ICONINFORMATION or MB_OK);
+end;
 
 // Tamanho em bytes de um arquivo (0 em erro/ausente).
 function FileSizeBytes(const ACaminho: string): Int64;
@@ -354,8 +377,9 @@ begin
   FRunner := nil;
   FBinSel := -1;
   FArquivo := '';
-  FOpAtiva := False;
-  FProgSrc := '';
+    FOpAtiva := False;
+    FTempoIni := Now;
+    FProgSrc := '';
   FProgDst := '';
   FQ := TStringList.Create;
   FQCS := TCriticalSection.Create;
@@ -370,11 +394,14 @@ begin
   Constraints.MinHeight := Height;
   Constraints.MaxHeight := Height;
   BuildUi;
-  EscolherBinario;
-  CarregarIni;
-  // assinatura de arquivo (duplo clique / linha de comando)
-  if (ParamCount > 0) and (ParamStr(1) <> '') then
-    CarregarArquivo(ParamStr(1));
+    EscolherBinario;
+    CarregarIni;
+    // sem arquivo na linha de comando: traz a ultima sessao.
+    if (ParamCount = 0) then
+      PreencherUltimaSessao;
+    // assinatura de arquivo (duplo clique / linha de comando)
+    if (ParamCount > 0) and (ParamStr(1) <> '') then
+      CarregarArquivo(ParamStr(1));
 end;
 
 destructor TfrmMain.Destroy;
@@ -795,31 +822,32 @@ begin
   Inc(Y, 26);
 
   // 5) Acoes - fileira unica, botoes iguais e uniformemente espacados
-  Inc(Y, 10);
-  EachW := (AW - (8 - 1) * 10) div 8;
-  X := 24;
-  for I := 0 to 7 do
-  begin
-    SB := TSwBtn.Create(Self);
-    SB.Parent := Card;
-    SB.Left := X;
-    SB.Top := Y;
-    SB.Width := EachW;
-    SB.Height := 34;
-    SB.FPrimario := (I = 7);
-    SB.FNeutro := (I <> 7);
-    case I of
-      0: begin SB.Texto := 'Diagnosticar';  SB.OnClick := DoDiag;        end;
-      1: begin SB.Texto := 'Backup .fbk';   SB.OnClick := DoBackupFbk;   end;
-      2: begin SB.Texto := 'Exportar SQL';  SB.OnClick := DoExportarSql; end;
-      3: begin SB.Texto := 'Historico';     SB.OnClick := DoHistorico;   end;
-      4: begin SB.Texto := 'Associar';      SB.OnClick := DoAssociar;    end;
-      5: begin SB.Texto := 'Cancelar';      SB.OnClick := DoCancelar;    end;
-      6: begin SB.Texto := 'Ajuda';         SB.OnClick := DoAjuda;       end;
-      7: begin SB.Texto := 'Recuperar';    SB.OnClick := DoRecuperar;   end;
+    Inc(Y, 10);
+    EachW := (AW - (9 - 1) * 10) div 9;
+    X := 24;
+    for I := 0 to 8 do
+    begin
+      SB := TSwBtn.Create(Self);
+      SB.Parent := Card;
+      SB.Left := X;
+      SB.Top := Y;
+      SB.Width := EachW;
+      SB.Height := 34;
+      SB.FPrimario := (I = 8);
+      SB.FNeutro := (I <> 8);
+      case I of
+        0: begin SB.Texto := 'Diagnosticar';  SB.OnClick := DoDiag;        end;
+        1: begin SB.Texto := 'Backup .fbk';   SB.OnClick := DoBackupFbk;   end;
+        2: begin SB.Texto := 'Exportar SQL';  SB.OnClick := DoExportarSql; end;
+        3: begin SB.Texto := 'Historico';     SB.OnClick := DoHistorico;   end;
+        4: begin SB.Texto := 'Associar';      SB.OnClick := DoAssociar;    end;
+        5: begin SB.Texto := 'Copiar rel.';   SB.OnClick := DoCopiar;      end;
+        6: begin SB.Texto := 'Cancelar';      SB.OnClick := DoCancelar;    end;
+        7: begin SB.Texto := 'Ajuda';         SB.OnClick := DoAjuda;       end;
+        8: begin SB.Texto := 'Recuperar';    SB.OnClick := DoRecuperar;   end;
+      end;
+      X := X + EachW + 10;
     end;
-    X := X + EachW + 10;
-  end;
   Inc(Y, 34);
 
   Card.Height := Y + 18;
@@ -981,11 +1009,13 @@ begin
     Exit;
   end;
   FArquivo := ACaminho;
-  FDest.Text := ChangeFileExt(FArquivo, '.fdb');
-  if FOrigemEdit <> nil then
-    FOrigemEdit.Text := ACaminho;
-  AtualizarStatus('arquivo carregado');
-  AddLine('Arquivo: ' + FArquivo);
+    FDest.Text := ChangeFileExt(FArquivo, '.fdb');
+    if FOrigemEdit <> nil then
+      FOrigemEdit.Text := ACaminho;
+    AtualizarStatus('arquivo carregado');
+    // Credenciais conforme o tipo do arquivo aberto (.gbk/.fbk x .fdb/...).
+    CarregarCredenciais(ExtAtual);
+    AddLine('Arquivo: ' + FArquivo);
   if AppLogger <> nil then
     AppLogger.Info('main', 'Arquivo carregado: ' + FArquivo);
 end;
@@ -1009,10 +1039,123 @@ begin
   inherited;
 end;
 
+// ====================================================================
+// Lembranca de sessao: origem/destino em ui.ini e credenciais por
+// tipo de arquivo no cofre DPAPI (nunca em claro).
+// ====================================================================
 function UiIniPath: string;
 begin
   Result := ExcludeTrailingPathDelimiter(
     SysUtils.GetEnvironmentVariable('APPDATA')) + '\FBRecStudio\ui.ini';
+end;
+
+function TfrmMain.ExtAtual: string;
+var
+  S: string;
+begin
+  Result := 'geral';
+  S := '';
+  if FArquivo <> '' then
+    S := FArquivo
+  else if (FOrigemEdit <> nil) and (FOrigemEdit.Text <> '') then
+    S := FOrigemEdit.Text;
+  if S <> '' then
+  begin
+    S := LowerCase(ExtractFileExt(S));
+    if S <> '' then
+      Result := Copy(S, 2, MaxInt);   // '.gbk' -> 'gbk'
+  end;
+end;
+
+function TfrmMain.CaminhoCofre(const AExt: string): string;
+var
+  E: string;
+  I: Integer;
+begin
+  E := AExt;
+  if E = '' then
+    E := 'geral';
+  // So caracteres seguros para nome de arquivo.
+  for I := 1 to Length(E) do
+    if not (E[I] in ['a'..'z', 'A'..'Z', '0'..'9', '_']) then
+      E[I] := '_';
+  Result := IncludeTrailingPathDelimiter(GetAppDataDir) +
+            'credentials_' + E + '.bin';
+end;
+
+procedure TfrmMain.CarregarCredenciais(const AExt: string);
+var
+  Cofre: TCredStore;
+  U, S: string;
+begin
+  U := '';
+  S := '';
+  Cofre := TCredStore.Create(CaminhoCofre(AExt));
+  try
+    if Cofre.Load(U, S) then
+    begin
+      if FUser <> nil then
+        FUser.Text := U;
+      if FPass <> nil then
+        FPass.Text := S;
+    end
+    else
+    begin
+      // Sem cofre ainda: padrao sysdba / sem senha.
+      if FUser <> nil then
+        FUser.Text := 'sysdba';
+      if FPass <> nil then
+        FPass.Text := '';
+    end;
+  finally
+    Cofre.Free;
+  end;
+end;
+
+procedure TfrmMain.SalvarCredenciais(const AExt: string);
+var
+  Cofre: TCredStore;
+begin
+  if (FUser = nil) or (FPass = nil) then
+    Exit;
+  Cofre := TCredStore.Create(CaminhoCofre(AExt));
+  try
+    Cofre.Save(FUser.Text, FPass.Text);
+  finally
+    Cofre.Free;
+  end;
+end;
+
+// Preenche Origem/Destino/credenciais com a ultima sessao (quando o
+// app abre sem arquivo na linha de comando).
+procedure TfrmMain.PreencherUltimaSessao;
+var
+  Ini: TIniFile;
+  Origem, Destino, Tipo: string;
+begin
+  if not FileExists(UiIniPath) then
+    Exit;
+  Ini := TIniFile.Create(UiIniPath);
+  try
+    Origem := Ini.ReadString('recentes', 'ultimo_arquivo', '');
+    Destino := Ini.ReadString('recentes', 'ultimo_destino', '');
+    Tipo := Ini.ReadString('recentes', 'ultimo_tipo', 'geral');
+  finally
+    Ini.Free;
+  end;
+  if Origem = '' then
+    Exit;
+  if FOrigemEdit <> nil then
+    FOrigemEdit.Text := Origem;
+  if FDest <> nil then
+  begin
+    if Destino = '' then
+      Destino := ChangeFileExt(Origem, '.fdb');
+    FDest.Text := Destino;
+  end;
+  CarregarCredenciais(Tipo);
+  AtualizarStatus('ultima sessao carregada (origem/destino/credenciais).');
+  AddLine('Ultima sessao: ' + Origem);
 end;
 
 procedure TfrmMain.CarregarIni;
@@ -1042,7 +1185,13 @@ begin
       Ini.WriteString('credenciais', 'usuario', FUser.Text);
     Ini.WriteString('caminhos', 'history', FHistoricoPath);
     if FArquivo <> '' then
-      Ini.WriteString('recentes', 'ultimo_arquivo', FArquivo);
+          Ini.WriteString('recentes', 'ultimo_arquivo', FArquivo);
+        // Lembranca de sessao: destino e tipo (credenciais no cofre DPAPI).
+        if FDest <> nil then
+          Ini.WriteString('recentes', 'ultimo_destino', FDest.Text);
+        Ini.WriteString('recentes', 'ultimo_tipo', ExtAtual);
+        // Persiste usuario/senha atuais no cofre do tipo (DPAPI).
+        SalvarCredenciais(ExtAtual);
   finally
     Ini.Free;
   end;
@@ -1066,16 +1215,17 @@ begin
                [mbOk], 0);
     Exit;
   end;
-  S := 'Arquivo: ' + FArquivo + #13#10 +
-       'Tipo: ' + DiagKindParaTexto(R.FileKind) + #13#10 +
+  S := 'Tipo: ' + DiagKindParaTexto(R.FileKind) + #13#10 +
        'ODS: ' + IntToStr(R.OdsMaior) + '.' + IntToStr(R.OdsMenor) +
-       #13#10 + 'Tamanho: ' + IntToStr(Integer(R.FileSize)) + ' bytes' +
-       #13#10 + 'Tecnica recomendada: ' + R.RecommendedTech + #13#10;
+       #13#10 + 'Tamanho: ' + Format('%d', [R.FileSize]) + ' bytes' +
+       #13#10 + 'Tecnica: ' + R.RecommendedTech + #13#10;
   if R.Notes <> '' then
-    S := S + 'Notas:' + #13#10 + R.Notes + #13#10;
+    S := S + 'Nota: ' + Copy(R.Notes, 1, 140) + #13#10;
   AddLine('=== Diagnostico ===');
+  AddLine('Arquivo: ' + FArquivo);
   AddLine(S);
-  MessageDlg(S, mtInformation, [mbOk], 0);
+  InformarDlg('Diagnostico',
+    'Arquivo: ' + ExtractFileName(FArquivo) + #13#10 + S);
 end;
 
 procedure TfrmMain.DoBackupFbk(Sender: TObject);
@@ -1106,15 +1256,16 @@ begin
     MessageDlg('Nenhum gbak detectado.', mtError, [mbOk], 0);
     Exit;
   end;
-  Msg := 'Gerar backup (.fbk) de' + #13#10 + FArquivo + #13#10 +
-         'com ' + FBins[FBinSel].CaminhoBin + 'gbak.exe' + #13#10 +
-         'Confirma?';
-  if MessageDlg(Msg, mtConfirmation, mbYesNoCancel, 0) <> mrYes then
+  if ConfirmarDlg('Backup .fbk',
+       'Gerar backup (.fbk) de:' + #13#10 + FArquivo + #13#10 +
+       'Confirma?') <> IDYES then
     Exit;
   FProgSrc := FArquivo;
-  FProgDst := ChangeFileExt(FArquivo, '.fbk');
-  FOpAtiva := True;
-  if FPBar <> nil then
+      FProgDst := ChangeFileExt(FArquivo, '.fbk');
+      FOpAtiva := True;
+      FTempoIni := Now;
+      SalvarCredenciais(ExtAtual);
+    if FPBar <> nil then
     FPBar.Position := 0;
   if FPctLbl <> nil then
     FPctLbl.Caption := '0% (backup...)';
@@ -1207,11 +1358,11 @@ begin
   end;
   if FDest.Text = '' then
     FDest.Text := ChangeFileExt(FArquivo, '.fdb');
-  Msg := 'Restaurar' + #13#10 + FArquivo + #13#10 + 'para' + #13#10 +
-         FDest.Text + #13#10 + 'Usuario: ' + FUser.Text + #13#10 +
-         'Binario: ' + FBins[FBinSel].CaminhoBin + 'gbak.exe' + #13#10 +
-         'Confirma?';
-  if MessageDlg(Msg, mtConfirmation, mbYesNoCancel, 0) <> mrYes then
+  if ConfirmarDlg('Restaurar',
+       'Restaurar de:' + #13#10 + FArquivo + #13#10 +
+       'para:' + #13#10 + FDest.Text + #13#10 +
+       'Usuario: ' + FUser.Text + #13#10 +
+       'Confirma?') <> IDYES then
     Exit;
 
   // cria a pasta do destino e uma copia de seguranca? (v1: apenas cria
@@ -1219,9 +1370,11 @@ begin
   ForceDirectories(ExtractFilePath(FDest.Text));
 
   FProgSrc := FArquivo;
-  FProgDst := FDest.Text;
-  FOpAtiva := True;
-  if FPBar <> nil then
+      FProgDst := FDest.Text;
+      FOpAtiva := True;
+      FTempoIni := Now;
+      SalvarCredenciais(ExtAtual);
+    if FPBar <> nil then
     FPBar.Position := 0;
   if FPctLbl <> nil then
     FPctLbl.Caption := '0% (restaurando...)';
@@ -1485,9 +1638,7 @@ begin
         begin
           if P[Length(P)] <> '\' then
             P := P + '\';
-          RelPath := P + 'recuperacao_' +
-                     ChangeFileExt(ExtractFileName(FArquivo), '') +
-                     'elatorio_recuperacao.txt';
+          RelPath := P + 'recuperacao\relatorio_recuperacao.txt';
         end;
         if (RelPath <> '') and Motor.SalvarRelatorio(RelPath) then
         begin
@@ -1527,20 +1678,20 @@ begin
                [mbOk], 0);
     Exit;
   end;
-  Msg := 'Recuperacao AUTOMATICA de' + #13#10 + FArquivo + #13#10 +
-         #13#10 +
-         'O aplicativo vai: (1) diagnosticar o arquivo; (2) escolher ' +
-         'a tecnica adequada; (3) combinar tecnicas (restore limpo, ' +
-         'restore tolerante, copia forense + gfix, extrator de texto);' +
-         ' (4) validar o resultado e gravar um relatorio detalhado em ' +
-         'uma pasta recuperacao_<arquivo> ao lado do original.' +
-         #13#10#13#10 +
-         'O arquivo ORIGINAL nunca e alterado. Confirma?';
-  if MessageDlg(Msg, mtConfirmation, mbYesNoCancel, 0) <> mrYes then
+  if ConfirmarDlg('Recuperar',
+       'Recuperacao automatica de:' + #13#10 + FArquivo + #13#10 +
+       #13#10 +
+       'Diagnostica, escolhe a tecnica, valida o resultado e grava ' +
+       'relatorio em pasta "recuperacao_" ao lado do arquivo.' +
+       #13#10 +
+       'O arquivo ORIGINAL nunca e alterado.' + #13#10 +
+       'Confirma?') <> IDYES then
     Exit;
   FRecCancelar := False;
-  FOpAtiva := True;
-  // Progresso real: a barra acompanha o crescimento do banco sendo
+    FOpAtiva := True;
+        FTempoIni := Now;
+        SalvarCredenciais(ExtAtual);
+        // Progresso real: a barra acompanha o crescimento do banco sendo
   // restaurado (mesma heuristica do restore manual).
   P := ExtractFilePath(FArquivo);
   if P = '' then
@@ -1548,8 +1699,7 @@ begin
   if P[Length(P)] <> '\' then
     P := P + '\';
   FProgSrc := FArquivo;
-  FProgDst := P + 'recuperacao_' +
-              ChangeFileExt(ExtractFileName(FArquivo), '') + '\' +
+  FProgDst := P + 'recuperacao\' +
               ChangeFileExt(ExtractFileName(FArquivo), '') +
               '_recuperado.fdb';
   if FPBar <> nil then
@@ -1646,15 +1796,17 @@ begin
                'InterBase.', mtError, [mbOk], 0);
     Exit;
   end;
-  Msg := 'Exportar SQL/DDL (isql -extract) de' + #13#10 + FArquivo +
-         #13#10 + 'para ' + ChangeFileExt(FArquivo, '.sql') + #13#10 +
-         'Confirma?';
-  if MessageDlg(Msg, mtConfirmation, mbYesNoCancel, 0) <> mrYes then
+  if ConfirmarDlg('Exportar SQL',
+       'Exportar SQL/DDL de:' + #13#10 + FArquivo + #13#10 +
+       'para: ' + ChangeFileExt(FArquivo, '.sql') + #13#10 +
+       'Confirma?') <> IDYES then
     Exit;
   FProgSrc := FArquivo;
-  FProgDst := ChangeFileExt(FArquivo, '.sql');
-  FOpAtiva := True;
-  if FPBar <> nil then
+      FProgDst := ChangeFileExt(FArquivo, '.sql');
+      FOpAtiva := True;
+      FTempoIni := Now;
+      SalvarCredenciais(ExtAtual);
+    if FPBar <> nil then
     FPBar.Position := 0;
   if FPctLbl <> nil then
     FPctLbl.Caption := '0% (exportando sql...)';
@@ -1684,6 +1836,20 @@ begin
   if FPctLbl <> nil then
     FPctLbl.Caption := 'concluido (100%)';
   AtualizarStatus('exportacao concluida.');
+end;
+
+// ------------------------------------------------------------------
+// Copia o relatorio do painel (ou a ultima operacao) p/ a area de
+// transferencia - colar em email/WhatsApp/relatorio.
+// ------------------------------------------------------------------
+procedure TfrmMain.DoCopiar(Sender: TObject);
+begin
+  if FLog <> nil then
+  begin
+    Clipboard.AsText := FLog.Lines.Text;
+    AtualizarStatus('relatorio copiado para a area de transferencia.');
+    AddLine('Relatorio copiado para a area de transferencia.');
+  end;
 end;
 
 // ------------------------------------------------------------------
@@ -1741,7 +1907,11 @@ begin
       begin
         // Operacao rodando: so o rotulo (barato, nao trava).
         if Ultima <> '' then
+        begin
+          if Length(Ultima) > 70 then
+            Ultima := Copy(Ultima, 1, 70) + '...';
           FStatus.Caption := 'em andamento: ' + Ultima;
+        end;
       end
       else
       begin
@@ -1768,6 +1938,8 @@ procedure TfrmMain.ProgAtualizar;
 var
   Dst, Src: Int64;
   Pct: Integer;
+  Seg: Double;
+  Temp: string;
 begin
   if (not FOpAtiva) or (FPBar = nil) then
     Exit;
@@ -1783,7 +1955,12 @@ begin
     Pct := 0;
   FPBar.Position := Pct;
   if FPctLbl <> nil then
-    FPctLbl.Caption := IntToStr(Pct) + '%';
+  begin
+    // Mostra % + tempo decorrido (contador da operacao).
+    Seg := (Now - FTempoIni) * 86400;
+    Temp := Format('%.0f', [Seg]) + 's';
+    FPctLbl.Caption := IntToStr(Pct) + '% (' + Temp + ')';
+  end;
 end;
 
 procedure TfrmMain.DoTick(Sender: TObject);
