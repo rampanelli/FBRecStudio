@@ -52,6 +52,12 @@ type
     PageSize: Word;           // 0 = nao determinado
     Dialect: Byte;            // 0 = n/d, 1 ou 3
     Shutdown: Boolean;
+    // Formato do stream de backup (heuristico, F7): -1 = nao se
+    // aplica/nao analisado; 0 = nao parece backup; 1..15 = versao do
+    // formato lida do cabecalho (1..3 = legado InterBase/Firebird 1;
+    // >= 8 = Firebird moderno). Base empirica: backups reais FB 2.5
+    // comecam com os bytes 00 02 04 <ver>.
+    BackupFormatVer: Integer;
     SuspiciousFss: Boolean;
     FileSize: Int64;
     CompatibleServer: string; // '' nesta fase (sem servidor detectado)
@@ -99,6 +105,16 @@ const
 
   C_REC_PHYSICAL_DB = $0E;     // rec_physical_db (stream do gbak)
   C_BURP_BLOCK = 512;
+  // Cabecalho do stream de backup em formato moderno (empirico em
+  // backups reais FB 2.5): bytes 00 02 04 <versao>; versoes 1..3 sao
+  // legado (InterBase 6/FB1) e >= 8 sao Firebird moderno. O gbak IB6
+  // rejeita backups modernos com "Expected backup version 1,2,3.
+  // Found <ver>" - e a base da decisao de engine no diagnostico.
+  C_BAK_HDR0 = $00;
+  C_BAK_HDR1 = $02;
+  C_BAK_HDR2 = $04;
+  C_BAK_VER_LEGADO_MAX = 3;    // formato <= 3: legado
+  C_BAK_VER_MODERNO_MIN = 8;   // formato >= 8: Firebird moderno
 
 // Adiciona uma nota (linha) ao resultado.
 procedure Nota(var R: TDiagResult; const AMsg: string);
@@ -116,6 +132,32 @@ begin
     kDatabase: Result := 'banco de dados';
   else
     Result := 'desconhecido';
+  end;
+end;
+
+// ------------------------------------------------------------------
+// Deteccao do formato do stream de backup (cabecalho moderno).
+// Preenche R.BackupFormatVer (-1 = n/d; 0 = nao parece backup;
+// >0 = versao). True quando o padrao 00 02 04 <ver> foi reconhecido.
+// ------------------------------------------------------------------
+function DetectarFormatoBackup(const ABuf: array of Byte; ALen: Integer;
+  var R: TDiagResult): Boolean;
+var
+  V0, V1, V2, V3: Byte;
+begin
+  Result := False;
+  R.BackupFormatVer := -1;
+  if ALen < 4 then
+    Exit;
+  if not LerU8(ABuf, 0, V0) then Exit;
+  if not LerU8(ABuf, 1, V1) then Exit;
+  if not LerU8(ABuf, 2, V2) then Exit;
+  if not LerU8(ABuf, 3, V3) then Exit;
+  if (V0 = C_BAK_HDR0) and (V1 = C_BAK_HDR1) and (V2 = C_BAK_HDR2) and
+     (V3 >= 1) and (V3 <= 15) then
+  begin
+    R.BackupFormatVer := V3;
+    Result := True;
   end;
 end;
 
@@ -248,6 +290,7 @@ begin
   R.PageSize := 0;
   R.Dialect := 0;
   R.Shutdown := False;
+  R.BackupFormatVer := -1;
   R.SuspiciousFss := False;
   R.FileSize := AFileSize;
   R.CompatibleServer := '';
@@ -270,6 +313,7 @@ begin
   end;
 
   // 1) assinatura de backup (conteudo manda sobre a extensao)
+  DetectarFormatoBackup(ABuf, ALen, R); // preenche BackupFormatVer
   if TemAssinaturaBackup(ABuf, ALen, AFileSize) then
   begin
     R.FileKind := kBackup;
@@ -311,8 +355,26 @@ begin
   begin
     R.FileKind := kBackup;
     R.ClassificadoPor := 'extensao (sem assinatura)';
-    Nota(R, 'assinatura do stream nao reconhecida; backup provavel ' +
-            '(validar com gbak na F7)');
+    if R.BackupFormatVer > 0 then
+    begin
+      R.ClassificadoPor := 'assinatura do stream gbak (formato ' +
+                           IntToStr(R.BackupFormatVer) + ')';
+      if R.BackupFormatVer <= C_BAK_VER_LEGADO_MAX then
+        Nota(R, 'backup em formato legado (' +
+                IntToStr(R.BackupFormatVer) + '): criado por ' +
+                'InterBase 6/Firebird 1 - exige gbak dessa familia')
+      else if R.BackupFormatVer >= C_BAK_VER_MODERNO_MIN then
+        Nota(R, 'backup em formato Firebird moderno (' +
+                IntToStr(R.BackupFormatVer) + '): exige gbak ' +
+                'Firebird (2.5 ou superior) - gbak InterBase antigo ' +
+                'NAO le este formato')
+      else
+        Nota(R, 'formato de backup ' + IntToStr(R.BackupFormatVer) +
+                ' (faixa intermediaria, validar com gbak real)');
+    end
+    else
+      Nota(R, 'assinatura do stream nao reconhecida; backup provavel ' +
+              '(validar com gbak na F7)');
     RecomendarTecnica(R);
     Exit;
   end;
@@ -377,6 +439,7 @@ begin
   R.PageSize := 0;
   R.Dialect := 0;
   R.Shutdown := False;
+  R.BackupFormatVer := -1;
   R.SuspiciousFss := False;
   R.FileSize := 0;
   R.CompatibleServer := '';

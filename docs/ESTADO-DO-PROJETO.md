@@ -15,7 +15,7 @@ aplicativo 32-bit em **Delphi 7 puro** (VCL + WinAPI disponível no Windows
 XP SP3 → Windows 11). Ele usa os utilitários oficiais instalados
 (`gbak`, `gfix`, `isql`) — não embute servidor nem dependências externas.
 
-**Versão atual:** 0.2.0 (tag `v0.2.0`).
+**Versão atual:** 0.3.0 (desenvolvimento; a tag `v0.2.0` marca a v1 funcional).
 **Repositório:** histórico único e neutro (um commit inicial); a release contém
 somente código-fonte e documentação (sem binário).
 
@@ -68,16 +68,19 @@ somente código-fonte e documentação (sem binário).
 - `uExportCSV` — CSV/TSV (RFC-4180, NULL, BLOB), com contrato de driver de
   leitura (implementação real pendente de driver de dados).
 
-### Interface (GUI) (`src/ui`)
+### GUI funcional (v1) e recuperação automática (v0.3)
 Janela principal em VCL (controles criados em código):
 - Abertura por duplo clique/linha de comando; single-instance com repasse por
   `WM_COPYDATA`.
-- Auto-deteção de utilitários; **Diagnosticar**; **Restaurar** e **Backup (.fbk)**
-  em thread com cancelamento; **Exportar SQL**; **Histórico**; **Associar
-  .fbk/.gbk** (HKCU, sem UAC).
+- Auto-deteção de utilitários (inclui a pasta portátil `bin\ferramentas`);
+  **Diagnosticar**; **Recuperar** (automático: diagnóstico → escolha → técnicas
+  combinadas → validação → relatório com Problema/Solução/Recuperado);
+  **Backup (.fbk)** e **Exportar SQL** em thread com cancelamento; **Histórico**;
+  **Associar .fbk/.gbk** (HKCU, sem UAC).
 - Visual com paleta própria, cabeçalho em gradiente e botões flat.
 - **Progresso ao vivo** (barra + %) derivado do crescimento do arquivo de
   destino e **log em tempo real** no painel.
+- Timeout padrão de 30 min por subprocesso (sem mais espera infinita).
 - Persistência de usuário/último arquivo em `ui.ini`.
 
 ---

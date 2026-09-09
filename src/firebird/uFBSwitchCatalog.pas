@@ -51,6 +51,7 @@ type
     ssBackupMetadados,     // backup somente metadados             (-m)
     ssVerboso,             // saida verbosa                        (-v)
     ssNoGc,                // inibe garbage collection no backup   (-g)
+    ssIgnorarChecksum,     // ignorar checksums ruins              (-ig)
     ssFixFssMetadata,      // corrigir charset do metadata         (-FIX_FSS_METADATA)
     ssFixFssData,          // corrigir charset dos dados           (-FIX_FSS_DATA)
     ssKill,                // no gbak: restore sem criar sombras   (-k)
@@ -155,7 +156,7 @@ const
   // Chaves em caixa exata dos utilitarios (tokens aceitos em caixa
   // baixa/alta pelos utilitarios; a engine usa o que o catalogo devolve).
   // ------------------------------------------------------------------
-  KTabela: array[0..41] of TRowSwitch = (
+  KTabela: array[0..42] of TRowSwitch = (
     // ============================== gbak ==============================
     (Bin: bkGbak; Sem: ssRestoreCriar;      Familia: bfDesconhecida;
      MinMaior: 1; MinMenor: 0; MaxMaior: K_NENHUM; MaxMenor: K_NENHUM; Token: '-c'),
@@ -173,6 +174,10 @@ const
      MinMaior: 1; MinMenor: 0; MaxMaior: K_NENHUM; MaxMenor: K_NENHUM; Token: '-v'),
     (Bin: bkGbak; Sem: ssNoGc;              Familia: bfDesconhecida;
      MinMaior: 1; MinMenor: 0; MaxMaior: K_NENHUM; MaxMenor: K_NENHUM; Token: '-g'),
+    // '-ig' (ignore bad checksums): restore/backup tolerante.
+    // Presente no gbak InterBase 6 em diante (validar na F7 p/ FB1).
+    (Bin: bkGbak; Sem: ssIgnorarChecksum;   Familia: bfDesconhecida;
+     MinMaior: 1; MinMenor: 0; MaxMaior: K_NENHUM; MaxMenor: K_NENHUM; Token: '-ig'),
     // Regra de negocio 4.2: FIX_FSS so FB 1.5..2.5 e IB6 (FB3+ = '').
     (Bin: bkGbak; Sem: ssFixFssMetadata;    Familia: bfFirebird;
      MinMaior: 1; MinMenor: 5; MaxMaior: 2; MaxMenor: K_NENHUM; Token: '-FIX_FSS_METADATA'),
@@ -296,6 +301,7 @@ begin
     ssBackupMetadados:   Result := 'backup metadados';
     ssVerboso:           Result := 'verboso';
     ssNoGc:              Result := 'sem garbage collection';
+    ssIgnorarChecksum:   Result := 'ignorar checksums ruins';
     ssFixFssMetadata:    Result := 'fix fss metadata';
     ssFixFssData:        Result := 'fix fss data';
     ssKill:              Result := 'kill (sem sombras)';

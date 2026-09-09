@@ -34,7 +34,8 @@ uses
   ShellAPI,
   uQuoting, uTextCodec, uHash, uAppConfig, uLogger, uKernelExec,
   uEngineBase, uEngineGbak, uFBVersionInfo, uFBSwitchCatalog,
-  uFBAutoDetect, uDiagFileProbe, uHistoryStore, uExportSQL;
+  uFBAutoDetect, uDiagFileProbe, uHistoryStore, uExportSQL,
+  uMotorAutoRec;
 
 type
   // Coletor de saida do motor (sem tocar na UI de dentro do runner).
@@ -75,6 +76,19 @@ type
     procedure Execute; override;
   end;
 
+  // Worker da recuperacao AUTOMATICA (uMotorAutoRec): diagnostico ->
+  // escolha de tecnica -> tecnicas combinadas -> relatorio detalhado.
+  TRecThread = class(TThread)
+  private
+    FArquivo, FUser, FSenha: string;
+    FResultado: string;
+    FArquivoFinal: string;
+    FVeredito: TRecAutoResultado;
+  public
+    constructor Create(const AArquivo, AUser, ASenha: string);
+    procedure Execute; override;
+  end;
+
   TfrmMain = class(TForm)
   private
     FConfig: TAppConfig;
@@ -88,6 +102,8 @@ type
     FBinSel: Integer;
     FWorker: TOpThread;
     FSqlThread: TSqlThread;
+    FRecThread: TRecThread;
+    FRecCancelar: Boolean;
     FRunner: IProcessRunner;
     FOpen: TOpenDialog;
     FSave: TSaveDialog;
@@ -107,6 +123,8 @@ type
     procedure DoAbrir(Sender: TObject);
     procedure DoDiag(Sender: TObject);
     procedure DoRestaurar(Sender: TObject);
+    procedure DoRecuperar(Sender: TObject);
+    procedure RecOpConcluida;   // via Synchronize (thread de recuperacao)
     procedure DoCancelar(Sender: TObject);
     procedure DoBackupFbk(Sender: TObject);
     procedure DoDestino(Sender: TObject);
@@ -249,7 +267,9 @@ begin
       Plano.Senha := FSenha;
       Plano.Verboso := True;
       Plano.NoGC := True;
-      Plano.TimeoutMs := 0;   // sem timeout nesta v1 (cancel manual)
+      // Timeout default de 30 min por processo (0 = espera infinita,
+      // causa historica de travamento com engine pendurado).
+      Plano.TimeoutMs := 1800000;
 
       Motor := TMotorGbak.Create(nil);
       try
@@ -329,6 +349,8 @@ begin
   FConfig := nil;
   FWorker := nil;
   FSqlThread := nil;
+  FRecThread := nil;
+  FRecCancelar := False;
   FRunner := nil;
   FBinSel := -1;
   FArquivo := '';
@@ -369,6 +391,11 @@ begin
     if FRunner <> nil then
       FRunner.Cancel;
     FSqlThread.Free;
+  end;
+  if FRecThread <> nil then
+  begin
+    FRecCancelar := True;   // o motor encerra os subprocessos
+    FRecThread.Free;
   end;
   FQCS.Enter;
   try
@@ -789,7 +816,7 @@ begin
       4: begin SB.Texto := 'Associar';      SB.OnClick := DoAssociar;    end;
       5: begin SB.Texto := 'Cancelar';      SB.OnClick := DoCancelar;    end;
       6: begin SB.Texto := 'Ajuda';         SB.OnClick := DoAjuda;       end;
-      7: begin SB.Texto := 'Restaurar';     SB.OnClick := DoRestaurar;   end;
+      7: begin SB.Texto := 'Recuperar';    SB.OnClick := DoRecuperar;   end;
     end;
     X := X + EachW + 10;
   end;
@@ -896,10 +923,19 @@ procedure TfrmMain.EscolherBinario;
 var
   N, I: Integer;
   S: string;
+  Extras: TStringList;
 begin
   FBins := nil;
   FBinSel := -1;
-  N := AutoDetectar(nil, FBins);
+  // Inclui a pasta de ferramentas embarcadas que acompanha o app
+  // (bin\ferramentas) - o app roda portatil, sem instalacao.
+  Extras := TStringList.Create;
+  try
+    Extras.Add(ExtractFilePath(Application.ExeName) + 'ferramentas');
+    N := AutoDetectar(Extras, FBins);
+  finally
+    Extras.Free;
+  end;
   S := 'nenhum';
   // prioridade: primeiro gbak com versao valida
   for I := 0 to N - 1 do
@@ -1199,12 +1235,17 @@ end;
 
 procedure TfrmMain.DoCancelar(Sender: TObject);
 begin
+  if FRecThread <> nil then
+  begin
+    FRecCancelar := True;   // encerra no proximo ponto de checagem
+    AddLine('Cancelamento solicitado (recuperacao)...');
+  end;
   if FRunner <> nil then
   begin
     FRunner.Cancel;
     AddLine('Cancelamento solicitado...');
   end
-  else
+  else if FRecThread = nil then
     AddLine('Nenhuma operacao em andamento para cancelar.');
 end;
 
@@ -1283,7 +1324,7 @@ begin
         Opt.Destino := Destino;
         Opt.Charset := '';
         Opt.TetoBytes := 0;
-        Opt.TimeoutMs := 0;
+        Opt.TimeoutMs := 1800000; // 30 min (0 = espera infinita)
         Opt.KillTree := True;
         Opt.ConsoleCodePage := 0;
         Runner := TProcessRunner.Create;
@@ -1316,6 +1357,171 @@ begin
     Erros.Free;
   end;
   Synchronize(frmMain.OpSqlConcluida);
+end;
+
+// ====================================================================
+// TRecThread - recuperacao automatica (uMotorAutoRec) em background.
+// ====================================================================
+constructor TRecThread.Create(const AArquivo, AUser, ASenha: string);
+begin
+  inherited Create(True);
+  FArquivo := AArquivo;
+  FUser := AUser;
+  FSenha := ASenha;
+  FResultado := '';
+  FArquivoFinal := '';
+  FVeredito := raNaoIniciada;
+end;
+
+procedure TRecThread.Execute;
+var
+  Extras: TStringList;
+  Bins: TBinSetArray;
+  N: Integer;
+  Entrada: TRecAutoEntrada;
+  Motor: TMotorAutoRec;
+  Res: TRecAutoResultado;
+  I: Integer;
+  P: string;
+  RelPath: string;
+begin
+  FResultado := '';
+  try
+    Extras := TStringList.Create;
+    try
+      // Ferramentas embarcadas que acompanham o aplicativo (portatil).
+      Extras.Add(ExtractFilePath(Application.ExeName) + 'ferramentas');
+      N := AutoDetectar(Extras, Bins);
+      FillChar(Entrada, SizeOf(Entrada), 0);
+      Entrada.Origem := FArquivo;
+      Entrada.PastaTrabalho := ''; // default: pasta ao lado do arquivo
+      Entrada.Usuario := FUser;
+      Entrada.Senha := FSenha;
+      Entrada.TimeoutMs := 0;      // default interno (30 min/passo)
+      Entrada.PermitirReparoMend := True;
+      Entrada.Bins := Bins;
+      Motor := TMotorAutoRec.Create(Entrada, nil);
+      try
+        Motor.AtribuirCancelamento(@frmMain.FRecCancelar);
+        Res := Motor.Executar;
+        FVeredito := Res;
+        FArquivoFinal := Motor.ArquivoFinal;
+        // Monta o texto do relatorio (mesmo sem banco: honesto).
+        for I := 0 to Motor.Relatorio.Count - 1 do
+          FResultado := FResultado + Motor.Relatorio[I] + #13#10;
+        // Salva o relatorio .txt na pasta de trabalho usada pelo motor.
+        RelPath := '';
+        P := ExtractFilePath(FArquivo);
+        if P = '' then
+          P := ExtractFilePath(Application.ExeName);
+        if P <> '' then
+        begin
+          if P[Length(P)] <> '\' then
+            P := P + '\';
+          RelPath := P + 'recuperacao_' +
+                     ChangeFileExt(ExtractFileName(FArquivo), '') +
+                     '\relatorio_recuperacao.txt';
+        end;
+        if (RelPath <> '') and Motor.SalvarRelatorio(RelPath) then
+        begin
+          FResultado := FResultado + #13#10 +
+            'Relatorio salvo em: ' + RelPath + #13#10;
+          if AppLogger <> nil then
+            AppLogger.Info('recuperar', 'Relatorio: ' + RelPath);
+        end;
+      finally
+        Motor.Free;
+      end;
+    finally
+      Extras.Free;
+    end;
+  except
+    on E: Exception do
+      FResultado := 'Excecao na recuperacao: ' + E.ClassName + ' - ' +
+                    E.Message;
+  end;
+  Synchronize(frmMain.RecOpConcluida);
+end;
+
+procedure TfrmMain.DoRecuperar(Sender: TObject);
+var
+  Msg: string;
+begin
+  if (FWorker <> nil) or (FRecThread <> nil) then
+  begin
+    MessageDlg('Uma operacao ja esta em andamento.', mtWarning, [mbOk], 0);
+    Exit;
+  end;
+  if FArquivo = '' then
+  begin
+    MessageDlg('Abra um arquivo .fbk/.gbk/.fdb primeiro.', mtInformation,
+               [mbOk], 0);
+    Exit;
+  end;
+  Msg := 'Recuperacao AUTOMATICA de' + #13#10 + FArquivo + #13#10 +
+         #13#10 +
+         'O aplicativo vai: (1) diagnosticar o arquivo; (2) escolher ' +
+         'a tecnica adequada; (3) combinar tecnicas (restore limpo, ' +
+         'restore tolerante, copia forense + gfix, extrator de texto);' +
+         ' (4) validar o resultado e gravar um relatorio detalhado em ' +
+         'uma pasta recuperacao_<arquivo> ao lado do original.' +
+         #13#10#13#10 +
+         'O arquivo ORIGINAL nunca e alterado. Confirma?';
+  if MessageDlg(Msg, mtConfirmation, mbYesNoCancel, 0) <> mrYes then
+    Exit;
+  FRecCancelar := False;
+  FOpAtiva := True;
+  if FPBar <> nil then
+    FPBar.Position := 0;
+  if FPctLbl <> nil then
+    FPctLbl.Caption := 'recuperando...';
+  FRecThread := TRecThread.Create(FArquivo, FUser.Text, FPass.Text);
+  FRecThread.Resume;
+  AtualizarStatus('recuperando (automatico)...');
+  AddLine('Iniciando recuperacao automatica em ' +
+          FormatDateTime('hh:nn:ss', Now));
+  if AppLogger <> nil then
+    AppLogger.Info('recuperar', 'Iniciando recuperacao automatica de ' +
+                  FArquivo);
+end;
+
+procedure TfrmMain.RecOpConcluida;
+var
+  R: string;
+  I: Integer;
+  V: TRecAutoResultado;
+begin
+  V := raNaoIniciada;
+  if FRecThread <> nil then
+  begin
+    R := FRecThread.FResultado;
+    V := FRecThread.FVeredito;
+    FRecThread.Free;
+    FRecThread := nil;
+    FRunner := nil;
+  end;
+  FOpAtiva := False;
+  if FPBar <> nil then
+    FPBar.Position := 100;
+  if FPctLbl <> nil then
+    FPctLbl.Caption := 'concluido';
+  AddLine('');
+  AddLine('=== Recuperacao automatica concluida ===');
+  // Relatorio completo no painel (ate 400 linhas por seguranca).
+  I := 0;
+  while R <> '' do
+  begin
+    AddLine(R);
+    Inc(I);
+    if I > 400 then
+    begin
+      AddLine('... (relatorio completo salvo em arquivo .txt)');
+      Break;
+    end;
+    R := Copy(R, Pos(#13#10, R + #13#10) + 2, MaxInt);
+  end;
+  AtualizarStatus('recuperacao: ' + RecAutoResultadoParaTexto(V) +
+                  ' (ver relatorio no painel).');
 end;
 
 procedure TfrmMain.DoExportarSql(Sender: TObject);

@@ -74,6 +74,9 @@ type
     Senha: string;            // -pass (opcional; nunca logada em claro)
     Verboso: Boolean;         // -v
     NoGC: Boolean;            // -g (sem garbage collection)
+    // -ig: restore/backup tolerante (ignora checksums ruins). Usado
+    // pela recuperacao automatica quando o restore limpo falha.
+    IgnorarChecksum: Boolean;
     FixFssMetadata: string;   // charset p/ -FIX_FSS_METADATA ('' = off)
     FixFssData: string;       // charset p/ -FIX_FSS_DATA ('' = off)
     Kill: Boolean;            // -k (restore sem sombras)
@@ -589,6 +592,19 @@ begin
     AddArg('-v');
   if FPlano.NoGC then
     AddArg('-g');
+  // Restore/backup tolerante (-ig): recupera o maximo mesmo com
+  // checksums ruins (chave via catalogo; aviso quando nao suportada).
+  if FPlano.IgnorarChecksum then
+  begin
+    Tok := FCatalogo.ObterSwitch(bkGbak, FPlano.VersaoGbak,
+           ssIgnorarChecksum);
+    if Tok <> '' then
+      AddArg(Tok)
+    else
+      FAvisos.Add('-ig (ignorar checksums) nao disponivel no catalogo ' +
+                  'para o gbak ' + VersaoParaTexto(FPlano.VersaoGbak) +
+                  '; executando sem tolerancia a checksum.');
+  end;
   if FPlano.Usuario <> '' then
   begin
     AddArg('-user');

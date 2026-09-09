@@ -36,6 +36,13 @@ bin/
 tests/corpora/*
 !tests/corpora/README.md
 
+# Arquivos de banco/backup (dados reais de teste; nunca versionar)
+*.gbk
+*.fbk
+*.fdb
+*.gdb
+*.fdb.tmp
+
 # Artefatos locais sensiveis (nunca versionar)
 config.ini
 credentials.bin

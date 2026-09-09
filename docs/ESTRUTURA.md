@@ -56,6 +56,7 @@ Mapa atual do repositório. O estado por fase e as convenções de código estã
 | src/core | uQuoting | Montagem de argv, parser de referência, mascarar -pass |
 | src/core | uHash | MD5/SHA-1 (CryptoAPI) p/ histórico e integridade |
 | src/core | uKernelExec | Contratos IOutputSink/IProcessRunner; pipes, threads, timeout, Job Object |
+| src/engines | uMotorAutoRec | Recuperacao AUTOMATICA: diagnostico, escolha e combinacao de tecnicas + relatorio (v0.3) |
 | src/ui | uFrmMain | Única unidade com Forms (regra: negócio sem UI) |
 | src/persist | uAppConfig | config.ini ANSI em %APPDATA%\FBRecStudio |
 | src/persist | uCredStore | credentials.bin protegido por DPAPI (nunca claro) |

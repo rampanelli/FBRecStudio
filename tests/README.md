@@ -15,6 +15,7 @@ falhas (0 = sucesso).
 | TestSwitchCatalog.dpr | src\firebird\uFBVersionInfo.pas, uFBSwitchCatalog.pas | catalogo (binario x versao x semantica), regra -FIX_FSS_*, ODS x versao — F1-T2/T4 |
 | TestFBAutoDetect.dpr | src\firebird\uFBAutoDetect.pas (+catalog) | deteccao com diretorios fake em %TEMP% — F1-T3 |
 | TestDiagProbe.dpr | src\diag\uDiagParser.pas, uDiagFileProbe.pas, uDiagReport.pas | buffers sinteticos de banco/backup, leitura em disco — F1-T4/T5 |
+| TestAutoRecuperar.dpr | src\engines\uMotorAutoRec.pas (+engines) | recuperacao automatica contra arquivo REAL (uso: TestAutoRecuperar.exe <arquivo> [<pasta_gbak>] [<pasta_trabalho>]) — v0.3 |
 
 Compilacao e execucao: `tests\build_tests.bat [caminho\do\dcc32.exe]`
 (variaveis de ambiente `FB_DCC32` ou `DELPHI_ROOT` tambem sao aceitas —
