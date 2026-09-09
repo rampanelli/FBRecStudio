@@ -441,7 +441,12 @@ begin
       if Pos('version', S) > 0 then
       begin
         TemVersao := True;
-        AInfo := Trim(OutL[I]);
+        // Prefere a linha da versao real (ex.: 'gbak:gbak version
+        // WI-V2.5.9...') a linha de ajuda ('-Z print version number').
+        if Pos('wi-v', S) > 0 then
+          AInfo := Trim(OutL[I])
+        else if AInfo = '' then
+          AInfo := Trim(OutL[I]);
       end;
     end;
     for I := 0 to ErrL.Count - 1 do
@@ -450,7 +455,10 @@ begin
       if Pos('version', S) > 0 then
       begin
         TemVersao := True;
-        AInfo := Trim(ErrL[I]);
+        if Pos('wi-v', S) > 0 then
+          AInfo := Trim(ErrL[I])
+        else if AInfo = '' then
+          AInfo := Trim(ErrL[I]);
       end;
     end;
     if TemVersao then
@@ -1254,8 +1262,10 @@ begin
     Rel('  Exporte o DDL com isql -extract e compare com o esperado.');
   end;
   if FaltouCompat then
+  begin
     Rel('* Algum engine detectado pode ser incompativel com o formato');
     Rel('  do arquivo (ex.: gbak InterBase antigo x backup Firebird).');
+  end;
 end;
 
 // ------------------------------------------------------------------

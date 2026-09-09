@@ -359,7 +359,7 @@ begin
   FProgDst := '';
   FQ := TStringList.Create;
   FQCS := TCriticalSection.Create;
-  Caption := 'FB Recovery Studio 0.2.0 (v1 funcional)';
+  Caption := 'FB Recovery Studio 0.3.0 (recuperacao automatica)';
   Width := 1140;
   Height := 740;
   Position := poScreenCenter;
