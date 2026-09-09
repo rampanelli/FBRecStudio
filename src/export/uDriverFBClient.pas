@@ -89,9 +89,13 @@ const
   SQL_TYPE_DATE = 570;
   SQL_INT64     = 580;
 
-  // isc_get_segment: retornos especiais (status[1])
-  K_ISC_SEGMENT   = 100;    // segmento maior que o buffer; ha mais
-  K_ISC_SEGSTR_EOF = 101;   // fim do blob (chamada apos o ultimo)
+  // isc_get_segment: retornos especiais no status[1] (GDS codes do
+  // iberror.h - NAO sao os SQLCODE 100/101):
+  //   isc_segment   = 335544366: pedaco de segmento lido (ha mais do
+  //                   MESMO segmento quando o buffer e menor que ele);
+  //   isc_segstr_eof= 335544367: fim do blob (nenhum dado novo).
+  K_ISC_SEGMENT   = 335544366;
+  K_ISC_SEGSTR_EOF = 335544367;
 
   // DPB (database parameter buffer)
   K_DPB_VERSION1  = 1;
@@ -585,15 +589,6 @@ begin
   FNCols := FSqlda.sqld;
   if FNCols < 0 then
     FNCols := 0;
-  // ===== DEBUG TEMP =====
-  WriteLn(Format('DBG describe ver=%d sqln=%d sqld=%d sizevar=%d sizehdr=%d',
-    [FSqlda.version, FSqlda.sqln, FSqlda.sqld, SizeOf(TSQLVAR), SizeOf(TXSQLDA)]));
-  for I := 0 to FNCols - 1 do
-    WriteLn(Format('DBG var[%d] type=%d len=%d scale=%d sub=%d [%s]',
-      [I, FSqlda.sqlvar[I].sqltype, FSqlda.sqlvar[I].sqllen,
-       FSqlda.sqlvar[I].sqlscale, FSqlda.sqlvar[I].sqlsubtype,
-       string(BytesAnsi(@FSqlda.sqlvar[I].sqlname[0],
-         FSqlda.sqlvar[I].sqlname_length))]));
   // Aloca os buffers de dados e de indicador de NULL por coluna.
   SetLength(FBufs, FNCols);
   SetLength(FInds, FNCols);
@@ -671,7 +666,10 @@ begin
   repeat
     FillChar(St, SizeOf(St), 0);
     rc := FDrv.FGetSegment(St, BlobH, SegLen, SizeOf(Buf), @Buf);
-    if (rc = 0) or (St[1] = K_ISC_SEGMENT) then
+    if (rc = K_ISC_SEGSTR_EOF) or (St[1] = K_ISC_SEGSTR_EOF) or
+       (rc = 101) or (St[1] = 101) then
+      Terminou := True                              // fim limpo do blob
+    else if (rc = 0) or (St[1] = K_ISC_SEGMENT) then
     begin
       // segmento (ou pedaco de segmento) com SegLen bytes
       if SegLen > 0 then
@@ -681,8 +679,6 @@ begin
         Move(Buf, Bytes[Old], SegLen);
       end;
     end
-    else if (rc = K_ISC_SEGSTR_EOF) or (St[1] = K_ISC_SEGSTR_EOF) then
-      Terminou := True
     else
     begin
       Erro := True;

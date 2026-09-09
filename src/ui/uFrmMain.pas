@@ -1589,12 +1589,18 @@ begin
     FPBar.Position := 100;
   if FPctLbl <> nil then
     FPctLbl.Caption := 'concluido';
-  AddLine('');
-  AddLine('=== Recuperacao automatica concluida ===');
-  // Relatorio completo no painel (ate 400 linhas por seguranca), em
-  // lote para nao travar a interface linha a linha.
+  // Descarta linhas ao vivo remanescentes e mostra o relatorio final
+  // limpo (o acumulo da operacao nao interessa mais).
+  FQCS.Enter;
+  try
+    FQ.Clear;
+  finally
+    FQCS.Leave;
+  end;
   FLog.Lines.BeginUpdate;
   try
+    FLog.Lines.Clear;
+    AddLine('=== Recuperacao automatica concluida ===');
     I := 0;
     while R <> '' do
     begin
@@ -1706,8 +1712,7 @@ end;
 procedure TfrmMain.DrainLive;
 const
   K_DRAIN_TICK = 1500;   // linhas por tick (350 ms)
-  K_LOG_MAX = 4000;      // teto do memo (descarta as mais antigas)
-  K_LOG_TRIM = 2500;     // tamanho apos o descarte
+  K_LOG_RETEM = 100;     // janela deslizante: so as ultimas N linhas
 var
   L: TStringList;
   I, N: Integer;
@@ -1737,8 +1742,11 @@ begin
       try
         for I := 0 to L.Count - 1 do
           FLog.Lines.Add(L[I]);
-        if FLog.Lines.Count > K_LOG_MAX then
-          while FLog.Lines.Count > K_LOG_TRIM do
+        // Janela deslizante: durante a operacao o painel mostra apenas
+        // as ultimas K_LOG_RETEM linhas (nao acumula -> o TMemo nunca
+        // cresce e a interface fica leve mesmo com saida volumosa).
+        if FOpAtiva then
+          while FLog.Lines.Count > K_LOG_RETEM do
             FLog.Lines.Delete(0);
       finally
         FLog.Lines.EndUpdate;
