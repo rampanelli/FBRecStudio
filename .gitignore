@@ -59,3 +59,6 @@ Desktop.ini
 # res/icons/FBRecStudio.ico e versionado.
 res/icons/_*
 res/icons/*.png
+
+# Compactados/artefatos do usuario
+*.rar
