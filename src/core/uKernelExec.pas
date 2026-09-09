@@ -855,6 +855,10 @@ begin
       Result.ErrorText := 'Falha ao iniciar ' + Opt.Executable + ': ' +
                           SysErrorMessage(GetLastError);
       Result.Finished := Now;
+      // Fecha os write ends ainda abertos (sem isso cada falha de
+      // inicio vaza 2 handles - o caminho de sucesso fecha em :865).
+      ClearHandle(hOutWrite);
+      ClearHandle(hErrWrite);
       if FSink <> nil then
         FSink.OnProcessEvent(peFailedToStart, Result.ErrorText);
       Exit;

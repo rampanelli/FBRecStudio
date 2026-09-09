@@ -240,7 +240,7 @@ end;
 function TMotorSalvage.ExecutarFluxo: Boolean;
 var
   Camadas: array [0..4] of TGeraLayers;
-  N, I, J: Integer;
+  N, I: Integer;
   CopiaOk: Boolean;
 begin
   Result := False;
@@ -293,7 +293,11 @@ begin
     Exit;
   end;
 
-  for I := 0 to N - 1 do
+  // Fluxo: percorre as camadas na ordem do plano; um cancelamento no
+  // meio marca as restantes como ignorada (D7: sem alterar var de FOR,
+  // por isso o laco e um WHILE).
+  I := 0;
+  while I < N do
   begin
     // Cancelamento entre camadas: as restantes viram ignorada.
     if Cancelado then
@@ -302,7 +306,7 @@ begin
       begin
         FRelatorio.Marcar(Camadas[I], csIgnorada,
           'cancelado pelo usuario (camada nao iniciada)');
-        Inc(J);
+        Inc(I);
       end;
       Break;
     end;
@@ -325,6 +329,7 @@ begin
       glExtratorTexto:
         ExecutarCamadaExtrator(CopiaOk);
     end;
+    Inc(I);
   end;
 
   FRodou := True;

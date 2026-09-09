@@ -494,6 +494,11 @@ var
 begin
   AMsg := '';
   Result := False;
+  // Artefato proprio (pasta recuperacao_<base>): descarta restos de
+  // execucao anterior para o modo -c recriar limpo (o motor gbak
+  // recusa destino existente em mgRestoreCriar).
+  if FileExists(ADestinoBanco) then
+    SysUtils.DeleteFile(ADestinoBanco);
   Runner := TProcessRunner.Create;
   try
     Plano := TPlanoGbak.Create;
@@ -527,6 +532,9 @@ begin
         AMsg := Motor.Resumo.MensagemErro;
         if AMsg = '' then
           AMsg := Res.ErrorText;
+        // Sem meio-restore: apaga o parcial que o gbak deixou.
+        if FileExists(ADestinoBanco) then
+          SysUtils.DeleteFile(ADestinoBanco);
         // Guarda ate 3 linhas de saida do gbak para o relatorio.
         for I := 0 to Motor.Avisos.Count - 1 do
           LogarInfo('gbak aviso: ' + Motor.Avisos[I]);
