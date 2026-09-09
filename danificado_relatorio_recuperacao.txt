@@ -2,7 +2,7 @@
 ================================================================
 RELATORIO DE RECUPERACAO AUTOMATICA
 ================================================================
-Gerado em 09/09/2026 19:10:10
+Gerado em 09/09/2026 20:46:06
 Pasta de trabalho: D:\Operador\Codigos\FBRecStudio\recuperacao
 
 ================================================================
@@ -29,9 +29,9 @@ backup em formato Firebird moderno (9): exige gbak Firebird (2.5 ou superior) - 
 ================================================================
 Engine em uso: D:\Operador\Codigos\FBRecStudio\bin\ferramentas\gbak.exe (-USE_(ALL_SPACE)      do not reserve space for ...
 Destino do banco recuperado: D:\Operador\Codigos\FBRecStudio\danificado.fdb
-  [19:10:16] [OK]     T1 - restore limpo (gbak -c -v)
+  [20:46:11] [OK]     T1 - restore limpo (gbak -c -v)
            banco criado: D:\Operador\Codigos\FBRecStudio\danificado.fdb (12021760 bytes)
-  [19:10:19] [OK]     Validacao pos-restore (gfix -v)
+  [20:46:14] [OK]     Validacao pos-restore (gfix -v)
            gfix -v concluido (exit 0)
   [OK]     contagem via isql: 283 tabelas, 23880 registros.
 

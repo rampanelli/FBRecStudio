@@ -94,6 +94,7 @@ type
     FRelatorio: TStringList;
     FPassos: array of TRecPasso;
     FArquivoFinal: string;     // banco recuperado ('' = nenhum)
+    FReconstruido: string;     // banco reconstruido pelo datapump L2b
     FResultado: TRecAutoResultado;
     FTimeoutPadrao: DWORD;     // resolveu do 0 da entrada
 
@@ -153,6 +154,7 @@ type
     function NumPassos: Integer;
     function Passo(AIndex: Integer): TRecPasso;
     property ArquivoFinal: string read FArquivoFinal;
+    property Reconstruido: string read FReconstruido;
     property Resultado: TRecAutoResultado read FResultado;
   end;
 
@@ -368,14 +370,15 @@ begin
   FPassos[N].Titulo := ATitulo;
   FPassos[N].Ok := AOk;
   FPassos[N].Detalhe := ADetalhe;
-  // Timestamp de cada etapa (horario de fim).
+  // Uma UNICA linha por etapa: hora + veredito + titulo + detalhe.
   S := FormatDateTime('hh:nn:ss', Now);
   if AOk then
-    Rel('  [' + S + '] [OK]     ' + ATitulo)
+    S := '  [' + S + '] [OK]     ' + ATitulo
   else
-    Rel('  [' + S + '] [FALHA]  ' + ATitulo);
+    S := '  [' + S + '] [FALHA]  ' + ATitulo;
   if ADetalhe <> '' then
-    Rel('           ' + ADetalhe);
+    S := S + ': ' + ADetalhe;
+  Rel(S);
 end;
 
 function TMotorAutoRec.NumPassos: Integer;
@@ -944,8 +947,6 @@ var
   Resumo: string;
 begin
   Result := False;
-  Rel('Tecnica L2 - datapump tabela a tabela (driver fbclient) sobre: ' +
-      ABanco);
   if Length(FEntrada.Bins) = 0 then
   begin
     RegistrarPasso('L2 - datapump tabela a tabela', 'sem engine', False);
@@ -997,7 +998,7 @@ begin
       Exit;
     end;
     if not Ex.Executar(nil, nil, M) then
-      Rel('  [INFO]   houve falhas parciais na extracao (detalhes abaixo).');
+      Rel('  [INFO]   extracao com falhas parciais (detalhes a seguir).');
 
     OkT := 0;
     OkComDados := 0;
@@ -1129,15 +1130,25 @@ var
     end;
   end;
 
+  // Linha de erro do isql que vale mostrar (sem banner nem wrapper).
+  function LinhaErroUtil(const AL: string): Boolean;
+  var
+    U: string;
+  begin
+    U := Trim(UpperCase(AL));
+    Result := (U <> '') and
+      (Pos('USE CONNECT OR CREATE DATABASE', U) = 0) and
+      (Pos('STATEMENT FAILED', U) = 0) and
+      (Pos('DYNAMIC SQL ERROR', U) = 0) and
+      (Pos('SQLSTATE', U) = 0);
+  end;
+
 begin
   NovoBanco := CaminhoArtefato('_reconstruido', K_EXT_DB);
   if FEntrada.Destino <> '' then
     NovoBanco := ChangeFileExt(FEntrada.Destino, '') + '_reconstruido.fdb';
-  Rel('Tecnica L2b - reconstruindo banco novo a partir dos dados exportados');
-  Rel('Banco reconstruido: ' + NovoBanco);
   // O banco novo precisa do MESMO dialeto do original (DDL fiel).
   Dialeto := DetectarDialeto(AOrigemDados);
-  Rel('Dialeto do banco original: ' + IntToStr(Dialeto));
   if FileExists(NovoBanco) then
     SysUtils.DeleteFile(NovoBanco);
 
@@ -1198,7 +1209,6 @@ begin
       RegistrarPasso('L2b - criacao do banco novo', Msg, False);
       Exit;
     end;
-    Rel('  [OK]     banco novo criado: ' + NovoBanco);
 
     // (3) Aplica o DDL no banco novo.
     Script.Clear;
@@ -1281,18 +1291,15 @@ begin
       OkDdl := RodarIsqlComErros(Script, Dialeto, Saida, ErrosIsql, Msg);
       if not OkDdl then
       begin
-        Rel('  [AVISO]  DDL com erros parciais (o banco novo nao tem ' +
-            'usuarios/papeis do original, ex.: GRANT):');
-        if Saida <> nil then
-          for I := 0 to Saida.Count - 1 do
-            if I < 8 then
-              Rel('           [isql] ' + Saida[I])
-            else
-              Break;
+        Rel('  [AVISO]  DDL com erros parciais (ex.: GRANT de usuario ' +
+            'inexistente no banco novo):');
         if ErrosIsql <> nil then
           for I := 0 to ErrosIsql.Count - 1 do
-            if I < 10 then
-              Rel('           [erro] ' + ErrosIsql[I])
+            if I < 6 then
+            begin
+              if LinhaErroUtil(ErrosIsql[I]) then
+                Rel('           [erro] ' + ErrosIsql[I]);
+            end
             else
               Break;
       end;
@@ -1301,10 +1308,6 @@ begin
       Saida.Free;
       Saida := nil;
     end;
-    if OkDdl then
-      Rel('  [OK]     DDL aplicado (estrutura recriada).')
-    else
-      Rel('  [INFO]   DDL aplicado com avisos; a validacao ao final decide.');
 
     // (4) Importa os CSVs do datapump como INSERTs (isql em lote).
     Linhas := TStringList.Create;
@@ -1393,18 +1396,15 @@ begin
         Saida := nil;
         if not OkIns then
         begin
-          Rel('  [AVISO]  importacao com erros parciais (os dados ficam ' +
-              'preservados nos CSVs do datapump):');
-          if Saida <> nil then
-            for I := 0 to Saida.Count - 1 do
-              if I < 8 then
-                Rel('           [isql] ' + Saida[I])
-              else
-                Break;
+          Rel('  [AVISO]  importacao com erros parciais (dados preservados ' +
+              'nos CSVs do datapump):');
           if ErrosIsql <> nil then
             for I := 0 to ErrosIsql.Count - 1 do
-              if I < 10 then
-                Rel('           [erro] ' + ErrosIsql[I])
+              if I < 6 then
+              begin
+                if LinhaErroUtil(ErrosIsql[I]) then
+                  Rel('           [erro] ' + ErrosIsql[I]);
+              end
               else
                 Break;
         end;
@@ -1413,20 +1413,18 @@ begin
       end
       else
         OkIns := True;
-      Rel('  [OK]     dados importados: ' + IntToStr(TotalIns) +
-          ' registros em INSERTs.');
 
       // (5) Valida o banco reconstruido (tabelas e registros).
       OkVal := ContarBanco(NovoBanco, TabelasNovo, RegNovo, Msg);
       if OkVal then
       begin
         FArquivoFinal := NovoBanco;
+        FReconstruido := NovoBanco;
         if FResultado = raNada then
           FResultado := raParcial;
         RegistrarPasso('L2b - reconstrucao do banco',
-          'banco reconstruido: ' + NovoBanco + ' (' +
-          IntToStr(TabelasNovo) + ' tabelas, ' +
-          Format('%d', [RegNovo]) + ' registros)', True);
+          'banco reconstruido (' + IntToStr(TabelasNovo) + ' tabelas, ' +
+          Format('%d', [RegNovo]) + ' registros) em ' + NovoBanco, True);
       end
       else
       begin
@@ -1836,25 +1834,7 @@ begin
   if (FResultado = raNaoIniciada) and (FArquivoFinal <> '') then
     FResultado := raParcial;
 
-  RelSecao('4) RESULTADO: O QUE FOI RECUPERADO');
-  Rel('Veredito: ' + RecAutoResultadoParaTexto(FResultado));
-  if FArquivoFinal <> '' then
-  begin
-    Rel('Banco recuperado: ' + FArquivoFinal);
-    Rel('Tamanho: ' + Format('%d', [FileSizeBytes(FArquivoFinal)]) +
-        ' bytes');
-  end
-  else if (FResultado = raSemEngine) or (FResultado = raNada) then
-    Rel('Nenhum banco valido foi produzido.');
-
-  EscreverSecaoOQueFaltou;
-
-  if Cancelado then
-  begin
-    FResultado := raCancelado;
-    Result := FResultado;
-    Exit;
-  end;
+  // Tempo total (calculado aqui para a secao 4).
   T1 := Now;
   Duracao := (T1 - T0) * 86400;   // segundos
   Ds := Round(Duracao);
@@ -1866,8 +1846,29 @@ begin
     DuracaoTexto := IntToStr(M) + 'm ' + DuracaoTexto;
   if H > 0 then
     DuracaoTexto := IntToStr(H) + 'h ' + DuracaoTexto;
-  Rel('');
+
+  RelSecao('4) RESULTADO: O QUE FOI RECUPERADO');
+  Rel('Veredito: ' + RecAutoResultadoParaTexto(FResultado));
+  if FArquivoFinal <> '' then
+  begin
+    Rel('Banco recuperado: ' + FArquivoFinal);
+    Rel('Tamanho: ' + Format('%d', [FileSizeBytes(FArquivoFinal)]) +
+        ' bytes');
+  end
+  else if (FResultado = raSemEngine) or (FResultado = raNada) then
+    Rel('Nenhum banco valido foi produzido.');
+  if FReconstruido <> '' then
+    Rel('Banco reconstruido (datapump): ' + FReconstruido);
   Rel('Tempo total da recuperacao: ' + DuracaoTexto);
+
+  EscreverSecaoOQueFaltou;
+
+  if Cancelado then
+  begin
+    FResultado := raCancelado;
+    Result := FResultado;
+    Exit;
+  end;
   Result := FResultado;
 end;
 
