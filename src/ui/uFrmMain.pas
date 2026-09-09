@@ -384,22 +384,18 @@ begin
   begin
     if FRunner <> nil then
       FRunner.Cancel;
-    FWorker.Free;   // encerra a thread (nao forcada; v1)
+    FWorker := nil;   // FreeOnTerminate: a propria thread se libera
   end;
   if FSqlThread <> nil then
   begin
     if FRunner <> nil then
       FRunner.Cancel;
-    FSqlThread.Free;
+    FSqlThread := nil;
   end;
   if FRecThread <> nil then
   begin
     FRecCancelar := True;   // o motor encerra os subprocessos
-    // Espera a thread terminar antes de liberar (evita crash no
-    // fechamento com operacao ativa); WaitFor bombeia mensagens.
-    FRecThread.WaitFor;
-    FRecThread.Free;
-    FRecThread := nil;
+    FRecThread := nil;      // FreeOnTerminate (nunca Free no fechamento)
   end;
   FQCS.Enter;
   try
@@ -1124,6 +1120,7 @@ begin
     FPctLbl.Caption := '0% (backup...)';
   FWorker := TOpThread.Create(FArquivo, '', FUser.Text, FPass.Text,
                               False, True);
+  FWorker.FreeOnTerminate := True;
   FWorker.Resume;
   AtualizarStatus('backup...');
   AddLine('Iniciando backup gbak -b em ' + FormatDateTime('hh:nn:ss', Now));
@@ -1232,6 +1229,7 @@ begin
   FWorker := TOpThread.Create(FArquivo, FDest.Text, FUser.Text,
                               FPass.Text, False, False);
   FWorker.OnTerminate := nil;
+  FWorker.FreeOnTerminate := True;
   FWorker.Resume;
   AtualizarStatus('restaurando...');
   AddLine('Iniciando restore (thread) em ' + FormatDateTime('hh:nn:ss', Now));
@@ -1260,8 +1258,7 @@ begin
   if FWorker <> nil then
   begin
     R := FWorker.FResultado;
-    FWorker.Free;
-    FWorker := nil;
+    FWorker := nil;   // thread se libera via FreeOnTerminate
     FRunner := nil;
   end;
   if R <> '' then
@@ -1560,6 +1557,7 @@ begin
   if FPctLbl <> nil then
     FPctLbl.Caption := '0% (recuperando...)';
   FRecThread := TRecThread.Create(FArquivo, FUser.Text, FPass.Text);
+  FRecThread.FreeOnTerminate := True;
   FRecThread.Resume;
   AtualizarStatus('recuperando (automatico)...');
   AddLine('Iniciando recuperacao automatica em ' +
@@ -1580,8 +1578,7 @@ begin
   begin
     R := FRecThread.FResultado;
     V := FRecThread.FVeredito;
-    FRecThread.Free;
-    FRecThread := nil;
+    FRecThread := nil;  // thread se libera via FreeOnTerminate
     FRunner := nil;
   end;
   FOpAtiva := False;
@@ -1662,6 +1659,7 @@ begin
   if FPctLbl <> nil then
     FPctLbl.Caption := '0% (exportando sql...)';
   FSqlThread := TSqlThread.Create(FArquivo, FUser.Text, FPass.Text);
+  FSqlThread.FreeOnTerminate := True;
   FSqlThread.Resume;
   AtualizarStatus('exportando sql...');
   AddLine('Iniciando exportacao SQL/DDL em ' + FormatDateTime('hh:nn:ss', Now));
@@ -1674,8 +1672,7 @@ begin
   if FSqlThread <> nil then
   begin
     R := FSqlThread.FResultado;
-    FSqlThread.Free;
-    FSqlThread := nil;
+    FSqlThread := nil;  // thread se libera via FreeOnTerminate
     FRunner := nil;
   end;
   AddLine('');
@@ -1705,17 +1702,18 @@ begin
                mtInformation, [mbOk], 0);
 end;
 
-// Drena as linhas "ao vivo" acumuladas pelos workers para o memo.
-// Anti-saturacao (causa historica de "trava" visual com gbak -v):
-// entrega no MAXIMO K_DRAIN_TICK linhas por tick (o resto fica na
-// fila), usa BeginUpdate/EndUpdate e limita o tamanho do memo.
+// Drena as linhas "ao vivo" da fila. Durante uma operacao NENHUM
+// texto e escrito no TMemo por tick (o controle de texto e o ponto de
+// estrangulamento que congelava a interface): o feedback vira o rotulo
+// de status com a ultima etapa. O memo so recebe texto fora de
+// operacao e o relatorio final (RecOpConcluida).
 procedure TfrmMain.DrainLive;
 const
-  K_DRAIN_TICK = 1500;   // linhas por tick (350 ms)
-  K_LOG_RETEM = 100;     // janela deslizante: so as ultimas N linhas
+  K_DRAIN_TICK = 400;    // max linhas lidas por tick
 var
   L: TStringList;
   I, N: Integer;
+  Ultima: string;
 begin
   if FLog = nil then
     Exit;
@@ -1738,21 +1736,26 @@ begin
     end;
     if L.Count > 0 then
     begin
-      FLog.Lines.BeginUpdate;
-      try
-        for I := 0 to L.Count - 1 do
-          FLog.Lines.Add(L[I]);
-        // Janela deslizante: durante a operacao o painel mostra apenas
-        // as ultimas K_LOG_RETEM linhas (nao acumula -> o TMemo nunca
-        // cresce e a interface fica leve mesmo com saida volumosa).
-        if FOpAtiva then
-          while FLog.Lines.Count > K_LOG_RETEM do
-            FLog.Lines.Delete(0);
-      finally
-        FLog.Lines.EndUpdate;
+      Ultima := L[L.Count - 1];
+      if FOpAtiva then
+      begin
+        // Operacao rodando: so o rotulo (barato, nao trava).
+        if Ultima <> '' then
+          FStatus.Caption := 'em andamento: ' + Ultima;
+      end
+      else
+      begin
+        // Fora de operacao: pode acumular no memo (volume pequeno).
+        FLog.Lines.BeginUpdate;
+        try
+          for I := 0 to L.Count - 1 do
+            FLog.Lines.Add(L[I]);
+        finally
+          FLog.Lines.EndUpdate;
+        end;
+        FLog.SelStart := Length(FLog.Text);
+        SendMessage(FLog.Handle, EM_SCROLLCARET, 0, 0);
       end;
-      FLog.SelStart := Length(FLog.Text);
-      SendMessage(FLog.Handle, EM_SCROLLCARET, 0, 0);
     end;
   finally
     L.Free;
