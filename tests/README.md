@@ -16,6 +16,7 @@ falhas (0 = sucesso).
 | TestFBAutoDetect.dpr | src\firebird\uFBAutoDetect.pas (+catalog) | deteccao com diretorios fake em %TEMP% — F1-T3 |
 | TestDiagProbe.dpr | src\diag\uDiagParser.pas, uDiagFileProbe.pas, uDiagReport.pas | buffers sinteticos de banco/backup, leitura em disco — F1-T4/T5 |
 | TestAutoRecuperar.dpr | src\engines\uMotorAutoRec.pas (+engines) | recuperacao automatica contra arquivo REAL (uso: TestAutoRecuperar.exe <arquivo> [<pasta_gbak>] [<pasta_trabalho>]) — v0.3 |
+| TestDriverFB.dpr | src\export\uDriverFBClient.pas (+uExportCSV) | driver real via fbclient.dll (Firebird 2.5 embarcado): catalogo, contagem e exportacao CSV — v0.3 |
 
 Compilacao e execucao: `tests\build_tests.bat [caminho\do\dcc32.exe]`
 (variaveis de ambiente `FB_DCC32` ou `DELPHI_ROOT` tambem sao aceitas —

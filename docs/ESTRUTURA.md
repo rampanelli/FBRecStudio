@@ -44,7 +44,8 @@ Mapa atual do repositório. O estado por fase e as convenções de código estã
         README.md                  Como rodar os testes
         build_tests.bat
         TestCodec.dpr, TestQuoting.dpr,
-        TestLogger.dpr, TestKernelExec.dpr
+        TestLogger.dpr, TestKernelExec.dpr,
+        TestAutoRecuperar.dpr, TestDriverFB.dpr
         corpora/README.md          Amostras (F1+) — conteúdo ignorado
 
 ## Mapa de responsabilidades (PLANO 6.1 → código)
@@ -56,7 +57,8 @@ Mapa atual do repositório. O estado por fase e as convenções de código estã
 | src/core | uQuoting | Montagem de argv, parser de referência, mascarar -pass |
 | src/core | uHash | MD5/SHA-1 (CryptoAPI) p/ histórico e integridade |
 | src/core | uKernelExec | Contratos IOutputSink/IProcessRunner; pipes, threads, timeout, Job Object |
-| src/engines | uMotorAutoRec | Recuperacao AUTOMATICA: diagnostico, escolha e combinacao de tecnicas + relatorio (v0.3) |
+| src/engines | uMotorAutoRec | Recuperacao AUTOMATICA: diagnostico, escolha e combinacao de tecnicas (T1/T2/T4 p/ backup; L0-L4 + datapump L2/L2b p/ banco) + relatorio em 5 secoes (v0.3) |
+| src/export | uDriverFBClient | Driver real de leitura via fbclient.dll 32-bit (Firebird 2.5 embarcado) — base do datapump L2/L2b |
 | src/ui | uFrmMain | Única unidade com Forms (regra: negócio sem UI) |
 | src/persist | uAppConfig | config.ini ANSI em %APPDATA%\FBRecStudio |
 | src/persist | uCredStore | credentials.bin protegido por DPAPI (nunca claro) |

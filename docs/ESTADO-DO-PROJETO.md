@@ -16,6 +16,9 @@ XP SP3 → Windows 11). Ele usa os utilitários oficiais instalados
 (`gbak`, `gfix`, `isql`) — não embute servidor nem dependências externas.
 
 **Versão atual:** 0.3.0 (desenvolvimento; a tag `v0.2.0` marca a v1 funcional).
+**Estado:** recuperação automática completa (restore, copia forense + gfix,
+salvage, **datapump L2 com driver real** e **reconstrução L2b**) com relatório
+em 5 seções e GUI funcional.
 **Repositório:** histórico único e neutro (um commit inicial); a release contém
 somente código-fonte e documentação (sem binário).
 
@@ -57,6 +60,11 @@ somente código-fonte e documentação (sem binário).
   de uso (deteção por modo exclusivo).
 - `uSalvagePlan/uMotorSalvage` — orquestração em camadas (L0 cópia → L1
   validação/reparo → L3 backup do que abre → L4 extrator) com relatório.
+- `uMotorAutoRec` — recuperação automática de ponta a ponta: diagnóstico →
+  escolha → combinação em cascata (T1/T2/T4 para backup; L0-L4 para banco),
+  **datapump L2 tabela a tabela via `uDriverFBClient`** (CSV pulando as
+  corrompidas) e **reconstrução L2b** (DDL `isql -extract` + INSERTs em banco
+  novo); relatório em 5 seções com veredito e orientação do que faltou.
 - `uExtratorTexto` — varredura de "runs" de texto legível das páginas.
 
 ### Exportação (`src/export`)
@@ -66,7 +74,10 @@ somente código-fonte e documentação (sem binário).
   redirecionamento de shell).
 - `uExportReport` — relatório legível do DDL.
 - `uExportCSV` — CSV/TSV (RFC-4180, NULL, BLOB), com contrato de driver de
-  leitura (implementação real pendente de driver de dados).
+  leitura (implementação real via `uDriverFBClient`).
+- `uDriverFBClient` — driver real de leitura via `fbclient.dll` 32-bit
+  (Firebird 2.5 embarcado; `LOAD_WITH_ALTERED_SEARCH_PATH`); base do datapump
+  L2 e da exportação por tabela.
 
 ### GUI funcional (v1) e recuperação automática (v0.3)
 Janela principal em VCL (controles criados em código):
@@ -79,9 +90,14 @@ Janela principal em VCL (controles criados em código):
   **Associar .fbk/.gbk** (HKCU, sem UAC).
 - Visual com paleta própria, cabeçalho em gradiente e botões flat.
 - **Progresso ao vivo** (barra + %) derivado do crescimento do arquivo de
-  destino e **log em tempo real** no painel.
+  destino e **log em tempo real** no painel (janela deslizante, últimas 100
+  linhas); **contador de tempo** por etapa e total; botão **Copiar relatório**.
+- **Relatório de recuperação** em 5 seções, cada informação uma única vez,
+  salvo em `recuperacao\relatorio_recuperacao.txt` ao lado da origem.
 - Timeout padrão de 30 min por subprocesso (sem mais espera infinita).
-- Persistência de usuário/último arquivo em `ui.ini`.
+- Persistência de usuário/último arquivo em `ui.ini` + **lembrete de sessão**
+  (última origem/destino/tipo reaberta realmente ao abrir) e credenciais
+  por tipo no cofre DPAPI.
 
 ---
 
@@ -110,8 +126,9 @@ Janela principal em VCL (controles criados em código):
 
 ## 5. Limites conhecidos / pendências
 
-- **CSV por tabela e salvage L2** (extração seletiva por driver) aguardam o
-  driver de dados (`fbclient` 32-bit).
+- **Datapump L2/L2b entregues** com driver real; falta a exportação CSV por
+  tabela como fluxo autônomo na GUI (hoje o L2 roda dentro da recuperação
+  automática).
 - **Instalador/empacotamento**: ainda não implementado (app roda "portátil").
 - **Testes com Firebird real** (corpora de bancos bons/corrompidos) — requer
   servidores/ambientes de teste.
@@ -161,8 +178,10 @@ FBRecStudio/
 │  ├─ firebird/   uFBVersionInfo, uFBSwitchCatalog, uFBAutoDetect
 │  ├─ diag/       uDiagParser, uDiagFileProbe, uDiagReport
 │  ├─ engines/    uEngineBase, uEngineGbak, uEngineGfix, uGuardaSeguranca,
-│  │              uSafeCopy, uSalvagePlan, uMotorSalvage, uExtratorTexto
-│  ├─ export/     uExportBase, uExportFBK, uExportSQL, uExportReport, uExportCSV
+│  │              uSafeCopy, uSalvagePlan, uMotorSalvage, uMotorAutoRec,
+│  │              uExtratorTexto
+│  ├─ export/     uExportBase, uExportFBK, uExportSQL, uExportReport,
+│  │              uExportCSV, uDriverFBClient
 │  ├─ fw/         (reservado)
 │  └─ ui/         uFrmMain
 ├─ res/           manifesto, ícone, identidade

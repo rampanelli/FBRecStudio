@@ -20,6 +20,13 @@ instalados (`gbak`, `gfix`, `isql`), funcionando de Windows XP SP3 a Windows 11.
   servidor real).
 - **Restauração** de backups via `gbak -c/-r -v -g` em thread, com
   **cancelamento**, **log ao vivo** e **progresso em tempo real**.
+- **Recuperação automática**: diagnóstico → escolha → combinação em cascata
+  (restore limpo/tolerante, copia forense + `gfix`, salvage) → validação real
+  (contagem via `isql`) → **relatório em 5 seções** salvo em
+  `recuperacao\relatorio_recuperacao.txt`.
+- **Datapump L2** tabela a tabela via `fbclient` (`uDriverFBClient`) — exporta
+  cada tabela para CSV pulando as corrompidas — e **reconstrução L2b** de um
+  banco novo a partir desses dados (DDL `isql -extract` + INSERTs).
 - **Backup nativo** `.fbk` de um banco (`gbak -b`).
 - **Reparo/validação** estilo `gfix` (validate/-full, mend, activate, sweep,
   housekeeping, mode, kill, icu) com **guarda de segurança** (escrita exige
@@ -27,8 +34,8 @@ instalados (`gbak`, `gfix`, `isql`), funcionando de Windows XP SP3 a Windows 11.
 - **Salvage** em camadas (L0 cópia forense → validação → backup do que abre →
   extrator de texto das páginas) com relatório honesto do que sobrou.
 - **Exportação** SQL/DDL via `isql -extract` (captura do stdout, sem
-  redirecionamento de shell); CSV/TSV pronto na engine (RFC-4180, NULL/BLOB),
-  aguardando driver `fbclient`.
+  redirecionamento de shell); CSV/TSV na engine (RFC-4180, NULL/BLOB) com
+  driver real `uDriverFBClient` já ligado no datapump L2.
 - **Histórico** de operações em CSV; **associação `.fbk/.gbk`** por usuário
   (HKCU, sem UAC); **single-instance** com repasse por `WM_COPYDATA` e abertura
   por duplo clique / linha de comando.
@@ -93,8 +100,8 @@ mesmo arquivo.
 | Núcleo F0 + persistência | Concluído e testado (D7 + FPC) |
 | F1 Detecção/catálogo/diagnóstico | Concluído e testado |
 | F2–F5 Engines (gbak, gfix, salvage, export) | Concluído e testado |
-| GUI funcional v1 | Concluído (visual, restore/backup, diag, histórico, export SQL, associação, single-instance, progresso ao vivo) |
-| F6 visual completo / driver `fbclient` / F7 corpora / F8 instalador | Pendente (ver docs) |
+| GUI funcional v1 | Concluído (visual, restore/backup, diag, histórico, export SQL, associação, single-instance, progresso ao vivo, recuperação automática com relatório em 5 seções) |
+| F6 visual completo / CSV avulso na GUI / F7 corpora / F8 instalador | Pendente (ver docs) |
 
 ## Convenções de código
 

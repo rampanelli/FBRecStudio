@@ -145,9 +145,14 @@ Estratégia em camadas, da menos à mais invasiva:
 |---|---|---|---|
 | L0 | Cópia forense byte a byte (nunca no original) | própria (`uSafeCopy`) | ✅ |
 | L1 | Anexar + validar/reparar na cópia (`gfix -v -full`/`-mend`) | `gfix` | ✅ |
-| L2 | Extração **tabela a tabela** pulando as corrompidas | driver (`fbclient`) | 🔜 (aguarda driver) |
+| L2 | Extração **tabela a tabela** pulando as corrompidas | driver (`uDriverFBClient`) | ✅ (datapump no fluxo automático) |
 | L3 | Backup do que **abre** (`gbak -b`) + restore noutro banco | `gbak` | ✅ |
 | L4 | Varredura de páginas legíveis (runs de texto) | própria (`uExtratorTexto`) | ✅ básico |
+
+Sobre o L2: quando o banco não abre por inteiro, o fluxo automático exporta
+cada tabela para CSV via `fbclient.dll` (pulando as corrompidas) e, se der,
+**reconstrói um banco novo** (L2b) a partir desses dados (DDL `isql -extract`
++ INSERTs) — validado com 283/283 tabelas e 23.880 registros.
 
 Resultado: **relatório honesto** — por camada (tentada/ok/falha/ignorada) e
 resumo do que sobrou. A ferramenta nunca promete "recuperou 100%": mostra o que
@@ -161,7 +166,7 @@ engine low-level.
 | `.fbk` | `gbak -b -v -g` | Backup nativo íntegro |
 | SQL/DDL | `isql -extract` (captura do **stdout**, sem `>` de shell) | Base p/ reconstrução/migração |
 | Relatório DDL | contagem aproximada sobre o extract | Legível p/ auditoria |
-| CSV/TSV | engine pronta (RFC-4180, NULL=vazio, BLOB omitir/hex/arquivo) | Requer driver real p/ leitura de dados |
+| CSV/TSV | engine pronta (RFC-4180, NULL=vazio, BLOB omitir/hex/arquivo) | driver real (`uDriverFBClient`) usado no datapump L2 |
 
 ### 4.7 Acompanhamento em tempo real
 
@@ -293,8 +298,9 @@ engine low-level.
    (DDL de fonte confiável → recriar → importar dados).
 2. **Não faz downgrade de ODS** — arquivo/backup de ODS novo exige servidor novo
    (a ferramenta orienta e migra via SQL).
-3. **CSV por tabela e salvage L2** (extração seletiva via driver) aguardam a
-   decisão/implementação do driver `fbclient` (32-bit).
+3. **Exportação CSV por tabela autônoma na GUI** (o datapump L2 com
+   `fbclient` já roda dentro da recuperação automática; o fluxo CSV avulso
+   na tela ainda não foi exposto).
 4. **Não roda o servidor** — usa os utilitários instalados; no XP operará com
    bins antigos e orientará o uso em máquina com servidor adequado.
 5. **Sem edição de dados, sem comparação de bancos, sem plugins**.
@@ -334,12 +340,15 @@ engine low-level.
 ## 12. Limitações atuais e próximos passos
 
 **Hoje:** GUI funcional v1 (visual com paleta, restore/backup, diagnóstico,
-histórico, associação, export SQL, single-instance, progresso ao vivo).
+histórico, associação, export SQL, single-instance, progresso ao vivo) e
+recuperação automática completa — inclui datapump L2 (`uDriverFBClient`) e
+reconstrução L2b com relatório em 5 seções.
 
 **Próximos passos planejados:**
 1. F6 — framework visual completo (`fw/uCtrl*`) e assistente em passos.
 2. Expor `-FIX_FSS_METADATA` na GUI (quando o binário suportar).
-3. Driver de dados `fbclient` → CSV por tabela e salvage L2.
+3. Exportação CSV por tabela autônoma na GUI (o datapump L2 já roda na
+   recuperação automática).
 4. Corpora de teste com Firebird real (F7).
 5. Instalador (Inno Setup) + assinatura (F8) — **adiado**.
 

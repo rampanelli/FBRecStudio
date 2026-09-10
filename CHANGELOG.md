@@ -36,7 +36,24 @@ tratamento de erros e pacote portátil com o motor embarcado.
   (gbak/gfix/isql/gstat/nbackup + fbclient) e licenças IPL/IDPL — o app
   recupera sem instalar nada.
 - **Teste**: `tests/TestAutoRecuperar.dpr` — porta de comando do pipeline
-  contra arquivos reais (usado na validação do `dados.gbk`).
+   contra arquivos reais (usado na validação do `dados.gbk`).
+
+### Melhorado
+- **Datapump L2 com driver real** (`uDriverFBClient`, `fbclient.dll`): banco
+  que não abre por inteiro tem cada tabela exportada para CSV, pulando as
+  corrompidas (validação: 283/283 tabelas, 23.880 registros em CSVs).
+- **Reconstrução L2b**: a partir dos CSVs do datapump, o motor gera o DDL
+  real (`isql -extract`), cria um banco novo e importa os dados via INSERTs.
+- **Relatório em 5 seções** (`uMotorAutoRec`): cada informação aparece uma
+  única vez (corrigidas duplicações de etapas e o loop que re-adicionava o
+  texto inteiro); seção 5 com "como resolver cada passo" quando faltar algo.
+- **Pasta de saída fixa `recuperacao\`** ao lado da origem (mais simples de
+  achar o que foi recuperado); tempos por etapa e total no relatório.
+- **GUI**: log em janela deslizante (últimas 100 linhas), botão **Copiar
+  relatório**, contador ao vivo (% + tempo decorrido) e lembrete de sessão
+  (última origem/destino/tipo em `ui.ini` + credenciais por tipo via DPAPI).
+- **Estabilidade**: threads da GUI com `FreeOnTerminate` (fim do deadlock na
+  conclusão); relatório estruturado sem linhas órfãs.
 
 ### Verificado (v0.3)
 - `dados.gbk` (backup Firebird formato 9): restore limpo → gfix -v ok →

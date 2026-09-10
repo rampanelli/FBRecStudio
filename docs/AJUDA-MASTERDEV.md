@@ -117,14 +117,17 @@ Ao abrir um arquivo e clicar em **Diagnosticar**, o app informa:
   individuais estão prontas nas units e nos testes.
 
 ### 5.3 Banco corrompido **sem** backup bom (salvage)
-- Fluxo em camadas (a ferramenta implementa L0/L1/L3 + L4-básico):
+- Fluxo em camadas (a ferramenta implementa L0/L1/L2/L3 + L4-básico):
   - **L0** cópia forense byte a byte (`uSafeCopy`) — sempre antes de qualquer coisa;
   - **L1** validar/reparar com gfix na cópia;
+  - **L2** **datapump tabela a tabela** via `uDriverFBClient` (`fbclient.dll`):
+    exporta cada tabela para CSV pulando as corrompidas — ligado no fluxo
+    automático (validação: 283/283 tabelas, 23.880 registros);
+  - **L2b** **reconstrução**: a partir dos CSVs, gera DDL real (`isql
+    -extract`), cria um banco novo e importa os dados via INSERTs;
   - **L3** `gbak -b` do que **abre** → restore em outro banco (isola a corrupção);
   - **L4** extrator de "runs" de texto legível das páginas (`uExtratorTexto`) —
     útil para resgatar texto quando nada mais abre; resultado honesto do que sobrou;
-  - **L2** extração tabela a tabela pulando as corrompidas: **requer driver de
-    dados (`fbclient`)**, adiado (decisão §9.3); hoje o caminho é via `isql`.
 - **Não faz (e por quê):** substituição física de páginas comparando um banco
   bom anterior com o corrompido — inviável/arriscada sem engine low-level por ODS
   (páginas têm referências de TIP/SCN/offsets válidas só para aquele arquivo).
@@ -140,9 +143,9 @@ Ao abrir um arquivo e clicar em **Diagnosticar**, o app informa:
 - **`.fbk`** — `Backup (.fbk)` (gbak -b) ⇒ nativo, íntegro;
 - **SQL** — `Exportar SQL` (`isql -extract`) ⇒ estrutura [+dados], base para
   reconstrução/migração;
-- **CSV/TSV por tabela** — pronto na engine (`uExportCSV`, RFC-4180, NULL/BLOB)
-  e validado com driver de teste; a implementação real depende da decisão do
-  driver `fbclient` (adiado);
+- **CSV/TSV por tabela** — engine `uExportCSV` (RFC-4180, NULL/BLOB) validada;
+  driver real (`uDriverFBClient`) já roda no datapump L2 da recuperação
+  automática; falta expor o fluxo CSV avulso na GUI;
 - **Relatório DDL** — disponível na engine (`uExportReport`).
 
 ---
@@ -192,7 +195,8 @@ operação e o log exibe as linhas do utilitário **ao vivo**:
 
 - Framework visual completo F6 (`fw/uCtrl*`) e assistente em passos;
 - Opção `-FIX_FSS_METADATA` exposta na GUI (quando o binário suportar);
-- Driver de dados `fbclient` (CSV por tabela e salvage L2);
+- Exportação CSV por tabela autônoma na GUI (o datapump L2 com `fbclient` já
+  roda na recuperação automática);
 - Instalador (Inno Setup) — **adiado**;
 - Corpora de teste com Firebird real (F7) e empacotamento/assinatura (F8).
 
