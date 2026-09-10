@@ -420,7 +420,7 @@ begin
       Rel('Formato do backup: ' + IntToStr(R.BackupFormatVer) +
           ' (1..3 legado InterBase/FB1; >= 8 Firebird moderno)');
   if R.RecommendedTech <> '' then
-    Rel('Tecnica sugerida pelo diagnostico: ' + R.RecommendedTech);
+    ; // tecnica sugerida aparece na secao 2 (sem repetir aqui)
   if R.Notes <> '' then
     Rel('Notas do diagnostico:' + #13#10 + R.Notes);
 end;
@@ -458,38 +458,33 @@ begin
   try
     Opt.Executable := B.CaminhoBin + 'gbak.exe';
     Opt.WorkDir := '';
-    Opt.Args := nil;
+    SetLength(Opt.Args, 1);
+    Opt.Args[0] := '-z';   // imprime a linha WI-V da versao
     Opt.TimeoutMs := K_PROBE_TIMEOUT_MS;
     Opt.KillTreeOnCancel := True;
     Opt.ConsoleCodePage := 0;
     Res := BuildAndRun(Opt, OutL, ErrL);
     // gbak -z imprime a versao e sai com codigo != 0 por falta de
     // operandos; o criterio e a SAIDA conter a versao (nao o exit).
+    // So interessa a linha com 'WI-V' (versao real); o resto (help)
+    // e descartado para nao poluir o relatorio.
     TemVersao := False;
     for I := 0 to OutL.Count - 1 do
     begin
       S := LowerCase(OutL[I]);
-      if Pos('version', S) > 0 then
+      if Pos('wi-v', S) > 0 then
       begin
         TemVersao := True;
-        // Prefere a linha da versao real (ex.: 'gbak:gbak version
-        // WI-V2.5.9...') a linha de ajuda ('-Z print version number').
-        if Pos('wi-v', S) > 0 then
-          AInfo := Trim(OutL[I])
-        else if AInfo = '' then
-          AInfo := Trim(OutL[I]);
+        AInfo := Trim(OutL[I]);
       end;
     end;
     for I := 0 to ErrL.Count - 1 do
     begin
       S := LowerCase(ErrL[I]);
-      if Pos('version', S) > 0 then
+      if Pos('wi-v', S) > 0 then
       begin
         TemVersao := True;
-        if Pos('wi-v', S) > 0 then
-          AInfo := Trim(ErrL[I])
-        else if AInfo = '' then
-          AInfo := Trim(ErrL[I]);
+        AInfo := Trim(ErrL[I]);
       end;
     end;
     if TemVersao then
@@ -504,11 +499,7 @@ begin
     else if Res.ErrorText <> '' then
       AInfo := Res.ErrorText
     else
-    begin
       AInfo := 'gbak -z sem resposta util (saida sem versao)';
-      if ErrL.Count > 0 then
-        AInfo := AInfo + ': ' + Trim(ErrL[ErrL.Count - 1]);
-    end;
   finally
     OutL.Free;
     ErrL.Free;
@@ -1424,7 +1415,7 @@ begin
           FResultado := raParcial;
         RegistrarPasso('L2b - reconstrucao do banco',
           'banco reconstruido (' + IntToStr(TabelasNovo) + ' tabelas, ' +
-          Format('%d', [RegNovo]) + ' registros) em ' + NovoBanco, True);
+          Format('%d', [RegNovo]) + ' registros)', True);
       end
       else
       begin
@@ -1496,8 +1487,7 @@ begin
     FEntrada.Bins[0] := FEntrada.Bins[EngineIdx];
     FEntrada.Bins[EngineIdx] := B;
   end;
-  Rel('Engine em uso: ' + FEntrada.Bins[0].CaminhoBin + 'gbak.exe' +
-      ' (' + EngineOk + ')');
+  Rel('Engine: ' + FEntrada.Bins[0].CaminhoBin + 'gbak.exe');
 
   Destino := FEntrada.Destino;
   if Destino = '' then
@@ -1606,6 +1596,7 @@ var
   I, EngineIdx: Integer;
   B: TBinSet;
   Alvo: string;
+  DpOk: Boolean;
 begin
   RelSecao('2) TECNICAS ESCOLHIDAS E ORDEM (combinacao em cascata)');
   Rel('  L0. copia forense byte a byte (nunca opera no original)');
@@ -1643,8 +1634,7 @@ begin
     FEntrada.Bins[0] := FEntrada.Bins[EngineIdx];
     FEntrada.Bins[EngineIdx] := B;
   end;
-  Rel('Engine em uso: ' + FEntrada.Bins[0].CaminhoBin + 'gbak.exe' +
-      ' (' + EngineInfo + ')');
+  Rel('Engine: ' + FEntrada.Bins[0].CaminhoBin + 'gbak.exe');
 
   FillChar(Entrada, SizeOf(Entrada), 0);
   Entrada.Origem := FEntrada.Origem;
@@ -1669,9 +1659,20 @@ begin
       Rel('Salvage nao iniciado (pre-condicoes ausentes).');
       Exit;
     end;
-    // Anexa o resumo honesto do salvage ao relatorio.
-    Rel('Camadas do salvage (uMotorSalvage):');
-    Rel(Motor.Relatorio.ResumoHonesto);
+    // Resultado das camadas L0/L1 em UMA linha (sem repetir detalhes
+    // que aparecem nos passos seguintes).
+    if Motor.Relatorio.EstadoDe(glCopia) = csOk then
+    begin
+      if Motor.Relatorio.EstadoDe(glValidaGfix) = csOk then
+        RegistrarPasso('L0/L1 - copia forense e validacao gfix', 'ok', True)
+      else
+        RegistrarPasso('L0/L1 - copia forense e validacao gfix',
+          'copiada; validacao: ' + Motor.Relatorio.DetalheDe(glValidaGfix),
+          False);
+    end
+    else
+      RegistrarPasso('L0 - copia forense',
+        Motor.Relatorio.DetalheDe(glCopia), False);
 
     if Cancelado then
     begin
@@ -1701,11 +1702,7 @@ begin
          (not SameText(Alvo, FEntrada.Destino)) then
       begin
         if CopyFile(PChar(Alvo), PChar(FEntrada.Destino), False) then
-        begin
-          Rel('  [OK]     artefato copiado para o destino: ' +
-              FEntrada.Destino);
-          Alvo := FEntrada.Destino;
-        end
+          Alvo := FEntrada.Destino
         else
           Rel('  [INFO]   nao foi possivel copiar para o destino: ' +
               FEntrada.Destino + ' (erro ' +
@@ -1713,15 +1710,18 @@ begin
       end;
       // L2 - datapump tabela a tabela: extrai o que der (driver real).
       // Se exportou ao menos uma tabela, reconstroi um banco novo.
-      if TecnicaDatapump(Alvo) then
+      DpOk := TecnicaDatapump(Alvo);
+      if DpOk then
         TecnicaReconstruir(Alvo);
       if ContarBanco(Alvo, Tabelas, Registros, MsgCont) then
       begin
         FArquivoFinal := Alvo;
         FResultado := raParcial; // pode ser elevado abaixo
-        Rel('  [OK]     contagem via isql sobre ' + Alvo + ': ' +
-            IntToStr(Tabelas) + ' tabelas, ' +
-            Format('%d', [Registros]) + ' registros.');
+        // Sem datapump, a contagem e a unica fonte de numeros; com
+        // datapump os numeros ja sairam no passo L2 (sem repetir).
+        if not DpOk then
+          Rel('  [OK]     validacao: ' + IntToStr(Tabelas) +
+              ' tabelas, ' + Format('%d', [Registros]) + ' registros.');
         // Salvage com copia validada + contagem = parcial saudavel.
       end
       else

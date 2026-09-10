@@ -983,8 +983,6 @@ begin
   end
   else
     AtualizarStatus('nenhum (informe um binario valido antes de restaurar)');
-  AddLine('Auto-deteccao: ' + IntToStr(N) + ' instalacao(oes). Selecionado: ' +
-          S);
 end;
 
 procedure TfrmMain.DoAbrir(Sender: TObject);
@@ -1018,7 +1016,6 @@ begin
     AtualizarStatus('arquivo carregado');
     // Credenciais conforme o tipo do arquivo aberto (.gbk/.fbk x .fdb/...).
     CarregarCredenciais(ExtAtual);
-    AddLine('Arquivo: ' + FArquivo);
   if AppLogger <> nil then
     AppLogger.Info('main', 'Arquivo carregado: ' + FArquivo);
 end;
@@ -1156,7 +1153,6 @@ begin
       FDest.Text := Destino;
     CarregarArquivo(Origem, True);
     AtualizarStatus('ultima sessao reaberta: ' + Origem);
-    AddLine('Ultima sessao reaberta: ' + Origem);
   end
   else
   begin
@@ -1167,7 +1163,6 @@ begin
     CarregarCredenciais(Tipo);
     AtualizarStatus('ultima sessao: arquivo nao encontrado (campos ' +
                     'preenchidos).');
-    AddLine('Ultima sessao (arquivo nao encontrado): ' + Origem);
   end;
 end;
 
@@ -1442,8 +1437,6 @@ end;
 procedure TfrmMain.SetConfig(const AConfig: TAppConfig);
 begin
   FConfig := AConfig;
-  if FConfig <> nil then
-    AddLine('Config: ' + FConfig.Path);
 end;
 
 // ------------------------------------------------------------------
@@ -1753,8 +1746,6 @@ begin
   FRecThread.FreeOnTerminate := True;
   FRecThread.Resume;
   AtualizarStatus('recuperando (automatico)...');
-  AddLine('Iniciando recuperacao automatica em ' +
-          FormatDateTime('hh:nn:ss', Now));
   if AppLogger <> nil then
     AppLogger.Info('recuperar', 'Iniciando recuperacao automatica de ' +
                   FArquivo);
