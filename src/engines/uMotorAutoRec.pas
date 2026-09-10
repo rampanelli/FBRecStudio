@@ -1492,7 +1492,6 @@ begin
   Destino := FEntrada.Destino;
   if Destino = '' then
     Destino := CaminhoArtefato('_recuperado', K_EXT_DB);
-  Rel('Destino do banco recuperado: ' + Destino);
   LogarInfo('T1: restore limpo -> ' + Destino);
   RestoreOk := TentarRestore(FEntrada.Origem, Destino, False, Msg);
   if RestoreOk then

@@ -2,7 +2,7 @@
 ================================================================
 RELATORIO DE RECUPERACAO AUTOMATICA
 ================================================================
-Gerado em 09/09/2026 21:03:09
+Gerado em 09/09/2026 21:27:38
 Pasta de trabalho: D:\Operador\Codigos\FBRecStudio\recuperacao
 
 ================================================================
@@ -12,7 +12,6 @@ Arquivo: D:\Operador\Codigos\FBRecStudio\danificado.gbk
 Tamanho: 2756608 bytes
 Classificacao: backup gbak (assinatura do stream gbak (formato 9))
 Formato do backup: 9 (1..3 legado InterBase/FB1; >= 8 Firebird moderno)
-Tecnica sugerida pelo diagnostico: T1 - restore via gbak para banco novo (-c)
 Notas do diagnostico:
 backup em formato Firebird moderno (9): exige gbak Firebird (2.5 ou superior) - gbak InterBase an...
 
@@ -27,10 +26,10 @@ backup em formato Firebird moderno (9): exige gbak Firebird (2.5 ou superior) - 
 ================================================================
 3) EXECUCAO PASSO A PASSO
 ================================================================
-Engine em uso: D:\Operador\Codigos\FBRecStudio\bin\ferramentas\gbak.exe (-USE_(ALL_SPACE)      do not reserve space for ...
+Engine: D:\Operador\Codigos\FBRecStudio\bin\ferramentas\gbak.exe
 Destino do banco recuperado: D:\Operador\Codigos\FBRecStudio\danificado.fdb
-  [21:03:15] [OK]     T1 - restore limpo (gbak -c -v): banco criado: D:\Operador\Codigos\FBRecStudio\danificado.fdb (120...
-  [21:03:18] [OK]     Validacao pos-restore (gfix -v): gfix -v concluido (exit 0)
+  [21:27:44] [OK]     T1 - restore limpo (gbak -c -v): banco criado: D:\Operador\Codigos\FBRecStudio\danificado.fdb (120...
+  [21:27:48] [OK]     Validacao pos-restore (gfix -v): gfix -v concluido (exit 0)
   [OK]     contagem via isql: 283 tabelas, 23880 registros.
 
 ================================================================

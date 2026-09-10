@@ -1754,10 +1754,11 @@ end;
 procedure TfrmMain.RecOpConcluida;
 var
   R: string;
-  I: Integer;
+  RList: TStringList;
   V: TRecAutoResultado;
 begin
   V := raNaoIniciada;
+  R := '';
   if FRecThread <> nil then
   begin
     R := FRecThread.FResultado;
@@ -1771,31 +1772,33 @@ begin
   if FPctLbl <> nil then
     FPctLbl.Caption := 'concluido';
   // Descarta linhas ao vivo remanescentes e mostra o relatorio final
-  // limpo (o acumulo da operacao nao interessa mais).
+  // UMA vez (sem duplicar - o loop antigo re-adicionava a string
+  // inteira a cada iteracao).
   FQCS.Enter;
   try
     FQ.Clear;
   finally
     FQCS.Leave;
   end;
-  FLog.Lines.BeginUpdate;
+  RList := TStringList.Create;
   try
-    FLog.Lines.Clear;
-    AddLine('=== Recuperacao automatica concluida ===');
-    I := 0;
-    while R <> '' do
+    RList.Text := R;   // setter de Text quebra em linhas (uma por item)
+    if RList.Count > 400 then
     begin
-      AddLine(R);
-      Inc(I);
-      if I > 400 then
-      begin
-        AddLine('... (relatorio completo salvo em arquivo .txt)');
-        Break;
-      end;
-      R := Copy(R, Pos(#13#10, R + #13#10) + 2, MaxInt);
+      while RList.Count > 400 do
+        RList.Delete(RList.Count - 1);
+      RList.Add('... (relatorio completo salvo em arquivo .txt)');
+    end;
+    FLog.Lines.BeginUpdate;
+    try
+      FLog.Lines.Clear;
+      FLog.Lines.Add('=== Recuperacao automatica concluida ===');
+      FLog.Lines.AddStrings(RList);
+    finally
+      FLog.Lines.EndUpdate;
     end;
   finally
-    FLog.Lines.EndUpdate;
+    RList.Free;
   end;
   AtualizarStatus('recuperacao: ' + RecAutoResultadoParaTexto(V) +
                   ' (ver relatorio no painel).');
