@@ -2,7 +2,7 @@
 ================================================================
 RELATORIO DE RECUPERACAO AUTOMATICA
 ================================================================
-Gerado em 09/09/2026 21:27:38
+Gerado em 09/09/2026 21:46:17
 Pasta de trabalho: D:\Operador\Codigos\FBRecStudio\recuperacao
 
 ================================================================
@@ -27,9 +27,8 @@ backup em formato Firebird moderno (9): exige gbak Firebird (2.5 ou superior) - 
 3) EXECUCAO PASSO A PASSO
 ================================================================
 Engine: D:\Operador\Codigos\FBRecStudio\bin\ferramentas\gbak.exe
-Destino do banco recuperado: D:\Operador\Codigos\FBRecStudio\danificado.fdb
-  [21:27:44] [OK]     T1 - restore limpo (gbak -c -v): banco criado: D:\Operador\Codigos\FBRecStudio\danificado.fdb (120...
-  [21:27:48] [OK]     Validacao pos-restore (gfix -v): gfix -v concluido (exit 0)
+  [21:46:23] [OK]     T1 - restore limpo (gbak -c -v): banco criado: D:\Operador\Codigos\FBRecStudio\danificado.fdb (120...
+  [21:46:26] [OK]     Validacao pos-restore (gfix -v): gfix -v concluido (exit 0)
   [OK]     contagem via isql: 283 tabelas, 23880 registros.
 
 ================================================================
@@ -38,7 +37,7 @@ Destino do banco recuperado: D:\Operador\Codigos\FBRecStudio\danificado.fdb
 Veredito: RECUPERACAO COMPLETA
 Banco recuperado: D:\Operador\Codigos\FBRecStudio\danificado.fdb
 Tamanho: 12021760 bytes
-Tempo total da recuperacao: 10s
+Tempo total da recuperacao: 9s
 
 ================================================================
 5) SE FALTOU ALGO - COMO RESOLVER CADA PASSO
